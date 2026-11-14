@@ -14,7 +14,15 @@ window.MathJax = {
   startup: { typeset: false }
 };
 </script>
-<script async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
+<script defer src="vendor/mathjax/tex-svg-full.js"></script>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a6b8f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PMSM整定">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
 <style>
 /* Layout: instrument-panel workbench — parameter rack on the left, scope-style result panes on the right */
 :root{
@@ -163,6 +171,13 @@ table.g tr:hover td .cp{opacity:1}
 .two{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px}
 @media (max-width:1150px){.two{grid-template-columns:minmax(0,1fr)}}
 
+.hwrow{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:1100px){.hwrow{grid-template-columns:minmax(0,1fr)}}
+.hwrow .fields{padding:0}
+table.g td.st-ok{box-shadow:inset 3px 0 0 var(--ok)}
+table.g td.st-warn{box-shadow:inset 3px 0 0 var(--warn);background:var(--warn-soft)}
+table.g td.st-bad{box-shadow:inset 3px 0 0 var(--bad);background:var(--bad-soft)}
+table.g td.fx{font-family:var(--f-mono);font-size:12px;color:var(--muted);white-space:normal;min-width:180px}
 pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:12px;overflow:auto;font:12px/1.55 var(--f-mono);margin:0;max-height:520px;white-space:pre}
 .codebar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
 .codebar .sp{flex:1}
@@ -225,25 +240,31 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
     <details open>
       <summary>电气参数<span class="tag">相值 · 等幅值变换</span></summary>
       <div class="fields">
-        <div class="f"><label for="Rs"><b>Rs</b>定子相电阻</label><div class="inp"><input id="Rs" type="number" step="any" value="0.25"><span class="u">Ω</span></div></div>
-        <div class="f"><label for="Ld"><b>Ld</b>d 轴电感</label><div class="inp"><input id="Ld" type="number" step="any" value="2.2"><span class="u">mH</span></div></div>
-        <div class="f"><label for="Lq"><b>Lq</b>q 轴电感</label><div class="inp"><input id="Lq" type="number" step="any" value="4.5"><span class="u">mH</span></div></div>
-        <div class="f"><label for="pp"><b>p</b>极对数</label><div class="inp"><input id="pp" type="number" step="1" min="1" value="4"><span class="u">对</span></div></div>
+        <div class="f"><label for="tf">坐标变换</label><div class="inp"><select id="tf">
+          <option value="pow">等功率 (瑞萨 abs)</option>
+          <option value="amp">等幅值 (Clarke 2/3)</option>
+        </select></div></div>
+        <div class="hint" id="tfHint">等功率：|idq| = √3·Irms = √1.5·Ipk，Te = p·ψa·iq；等幅值：|idq| = Ipk，Te = 1.5·p·ψf·iq。</div>
+        <div class="f"><label for="Rs"><b>Rs</b>定子相电阻</label><div class="inp"><input id="Rs" type="number" step="any" value="1.34"><span class="u">Ω</span></div></div>
+        <div class="f"><label for="Ld"><b>Ld</b>d 轴电感</label><div class="inp"><input id="Ld" type="number" step="any" value="8.2"><span class="u">mH</span></div></div>
+        <div class="f"><label for="Lq"><b>Lq</b>q 轴电感</label><div class="inp"><input id="Lq" type="number" step="any" value="11.23"><span class="u">mH</span></div></div>
+        <div class="f"><label for="pp"><b>p</b>极对数</label><div class="inp"><input id="pp" type="number" step="1" min="1" value="3"><span class="u">对</span></div></div>
         <div class="f"><label for="fluxMode">磁链输入方式</label><div class="inp"><select id="fluxMode">
-          <option value="psi">永磁磁链 ψf</option>
+          <option value="psia">ψa 等功率磁链 (瑞萨 MAGNETIC_FLUX)</option>
+          <option value="psi">ψf 相磁链峰值</option>
           <option value="ke">反电动势常数 Ke</option>
           <option value="kt">转矩常数 Kt</option>
         </select></div></div>
-        <div class="f"><label for="fluxVal" id="fluxLbl"><b>ψf</b>永磁磁链 (峰值)</label><div class="inp"><input id="fluxVal" type="number" step="any" value="0.09"><span class="u" id="fluxUnit">Wb</span></div></div>
-        <div class="hint" id="fluxHint">Ke 按线电压有效值 / 1000 rpm；Kt 按相电流峰值。</div>
+        <div class="f"><label for="fluxVal" id="fluxLbl"><b>ψa</b>等功率磁链</label><div class="inp"><input id="fluxVal" type="number" step="any" value="0.086"><span class="u" id="fluxUnit">Wb</span></div></div>
+        <div class="hint" id="fluxHint">ψa = √1.5·ψf；Ke 按线电压有效值 / 1000 rpm；Kt 按相电流峰值。</div>
       </div>
     </details>
 
     <details open>
       <summary>机械参数</summary>
       <div class="fields">
-        <div class="f"><label for="Jm"><b>Jm</b>电机转动惯量</label><div class="inp"><input id="Jm" type="number" step="any" value="6"><span class="u">kg·cm²</span></div></div>
-        <div class="f"><label for="JL"><b>JL</b>负载惯量 (折算)</label><div class="inp"><input id="JL" type="number" step="any" value="12"><span class="u">kg·cm²</span></div></div>
+        <div class="f"><label for="Jm"><b>Jm</b>电机转动惯量</label><div class="inp"><input id="Jm" type="number" step="any" value="3"><span class="u">kg·cm²</span></div></div>
+        <div class="f"><label for="JL"><b>JL</b>负载惯量 (折算)</label><div class="inp"><input id="JL" type="number" step="any" value="0"><span class="u">kg·cm²</span></div></div>
         <div class="f"><label for="Bv"><b>B</b>粘滞摩擦系数</label><div class="inp"><input id="Bv" type="number" step="any" value="0.0001"><span class="u">N·m·s/rad</span></div></div>
       </div>
     </details>
@@ -251,18 +272,19 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
     <details open>
       <summary>额定与限幅</summary>
       <div class="fields">
-        <div class="f"><label for="Irated"><b>IN</b>额定相电流 (峰值)</label><div class="inp"><input id="Irated" type="number" step="any" value="8"><span class="u">A</span></div></div>
-        <div class="f"><label for="Imax"><b>Imax</b>最大相电流 (峰值)</label><div class="inp"><input id="Imax" type="number" step="any" value="16"><span class="u">A</span></div></div>
+        <div class="f"><label for="Irated"><b>IN</b>额定相电流 (峰值)</label><div class="inp"><input id="Irated" type="number" step="any" value="14.14"><span class="u">A</span></div></div>
+        <div class="f"><label for="Imax"><b>Imax</b>最大相电流 (峰值)</label><div class="inp"><input id="Imax" type="number" step="any" value="20"><span class="u">A</span></div></div>
         <div class="f"><label for="nRated"><b>nN</b>额定转速</label><div class="inp"><input id="nRated" type="number" step="any" value="3000"><span class="u">rpm</span></div></div>
-        <div class="f"><label for="nMax"><b>nmax</b>最高转速</label><div class="inp"><input id="nMax" type="number" step="any" value="4500"><span class="u">rpm</span></div></div>
+        <div class="f"><label for="nMax"><b>nmax</b>最高转速</label><div class="inp"><input id="nMax" type="number" step="any" value="3500"><span class="u">rpm</span></div></div>
         <div class="f"><label for="Vdc"><b>Udc</b>直流母线电压</label><div class="inp"><input id="Vdc" type="number" step="any" value="310"><span class="u">V</span></div></div>
+        <div class="hint">峰值 = 有效值 × √2（例：10 Arms → 14.14 A）。</div>
       </div>
     </details>
 
     <details open>
       <summary>控制器与采样<span class="tag">离散化设置</span></summary>
       <div class="fields">
-        <div class="f"><label for="fsw"><b>fpwm</b>开关 / 载波频率</label><div class="inp"><input id="fsw" type="number" step="any" value="10000"><span class="u">Hz</span></div></div>
+        <div class="f"><label for="fsw"><b>fpwm</b>开关 / 载波频率</label><div class="inp"><input id="fsw" type="number" step="any" value="5000"><span class="u">Hz</span></div></div>
         <div class="f"><label for="upd">采样 / 更新方式</label><div class="inp"><select id="upd">
           <option value="single">单采单更 Ts=Tpwm</option>
           <option value="double">双采双更 Ts=Tpwm/2</option>
@@ -277,8 +299,8 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
           <option value="fe">前向欧拉</option>
           <option value="tu">双线性 Tustin</option>
         </select></div></div>
-        <div class="f"><label for="Nw"><b>Nω</b>速度环分频</label><div class="inp"><input id="Nw" type="number" step="1" min="1" value="10"><span class="u">× Ts</span></div></div>
-        <div class="f"><label for="ff"><b>fω,f</b>速度反馈滤波截止</label><div class="inp"><input id="ff" type="number" step="any" value="300"><span class="u">Hz</span></div></div>
+        <div class="f"><label for="Nw"><b>Nω</b>速度环分频</label><div class="inp"><input id="Nw" type="number" step="1" min="1" value="5"><span class="u">× Ts</span></div></div>
+        <div class="f"><label for="ff"><b>fω,f</b>速度反馈滤波截止</label><div class="inp"><input id="ff" type="number" step="any" value="100"><span class="u">Hz</span></div></div>
         <div class="f"><label for="Np"><b>Nθ</b>位置环分频</label><div class="inp"><input id="Np" type="number" step="1" min="1" value="10"><span class="u">× Ts</span></div></div>
         <div class="f"><label for="enc"><b>Nenc</b>编码器分辨率</label><div class="inp"><input id="enc" type="number" step="1" value="131072"><span class="u">cnt/rev</span></div></div>
         <div class="hint">速度由位置差分 Δθ/Tω 计算，经一阶 IIR 滤波；滤波截止填 0 表示不滤波。</div>
@@ -309,6 +331,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <button role="tab" aria-selected="false" data-tab="spd">速度环</button>
       <button role="tab" aria-selected="false" data-tab="pos">位置环</button>
       <button role="tab" aria-selected="false" data-tab="obs">观测器</button>
+      <button role="tab" aria-selected="false" data-tab="hw">硬件换算</button>
       <button role="tab" aria-selected="false" data-tab="exp">代码导出</button>
     </div>
 
@@ -317,14 +340,17 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <div class="card">
         <h3>电流环整定 <span class="sub">PI + 解耦前馈，采样周期 Ts</span></h3>
         <div class="tune">
-          <div class="knob"><label for="fcc">期望电流环带宽 fcc</label>
-            <div class="row"><input type="range" id="fcc_r" min="1" max="4" step="0.005"><div class="inp"><input id="fcc" type="number" step="any" value="600"><span class="u">Hz</span></div></div></div>
+          <div class="knob"><label for="fcc" id="fccLbl">期望电流环带宽 fcc</label>
+            <div class="row"><input type="range" id="fcc_r" min="1" max="4" step="0.005"><div class="inp"><input id="fcc" type="number" step="any" value="20"><span class="u">Hz</span></div></div></div>
           <div class="knob"><label for="curMethod">设计方法</label>
             <div class="inp"><select id="curMethod">
+              <option value="fw">瑞萨固件极点配置 (ωn, ζ)</option>
               <option value="imc">连续域零极点对消 (IMC) → 离散化</option>
               <option value="zd">z 域直接零极点对消</option>
             </select></div>
             <span class="hint" id="curMethodHint"></span></div>
+          <div class="knob" id="kZc"><label for="zcc">阻尼比 ζ (CURRENT_CFG_ZETA)</label>
+            <div class="row"><div class="inp" style="width:100%"><input id="zcc" type="number" step="any" value="1"><span class="u">ζ</span></div></div></div>
           <div class="knob"><label for="curStep">阶跃仿真幅值</label>
             <div class="row"><div class="inp" style="width:100%"><input id="curStep" type="number" step="any" value="4"><span class="u">A</span></div></div></div>
         </div>
@@ -346,13 +372,16 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <div class="tune">
           <div class="knob"><label for="spdMethod">设计方法</label>
             <div class="inp"><select id="spdMethod">
+              <option value="fw">瑞萨固件极点配置 (ωn, ζ)</option>
               <option value="bw">带宽法 (Kp = Jωsc/Kt, 零点 ωsc/N)</option>
               <option value="so">对称最优 (a 参数)</option>
             </select></div></div>
-          <div class="knob" id="kFsc"><label for="fsc">期望速度环带宽 fsc</label>
-            <div class="row"><input type="range" id="fsc_r" min="0" max="3" step="0.005"><div class="inp"><input id="fsc" type="number" step="any" value="60"><span class="u">Hz</span></div></div></div>
+          <div class="knob" id="kFsc"><label for="fsc" id="fscLbl">期望速度环带宽 fsc</label>
+            <div class="row"><input type="range" id="fsc_r" min="0" max="3" step="0.005"><div class="inp"><input id="fsc" type="number" step="any" value="2"><span class="u">Hz</span></div></div></div>
           <div class="knob" id="kN"><label for="Nz">PI 零点系数 N (零点 = ωsc/N)</label>
             <div class="row"><input type="range" id="Nz_r" min="2" max="10" step="0.1"><div class="inp"><input id="Nz" type="number" step="any" value="4"><span class="u">—</span></div></div></div>
+          <div class="knob" id="kZs"><label for="zsc">阻尼比 ζ (SPEED_CFG_ZETA)</label>
+            <div class="row"><div class="inp" style="width:100%"><input id="zsc" type="number" step="any" value="1"><span class="u">ζ</span></div></div></div>
           <div class="knob" id="kA" hidden><label for="aSO">对称最优 a</label>
             <div class="row"><input type="range" id="aSO_r" min="1.5" max="5" step="0.05"><div class="inp"><input id="aSO" type="number" step="any" value="2.4"><span class="u">—</span></div></div></div>
           <div class="knob" id="kKt"><label for="ktMode">转矩常数取值 (IPMSM)</label>
@@ -380,7 +409,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <h3>位置环整定 <span class="sub">P + 速度/加速度前馈，采样周期 Tθ = Nθ·Ts</span></h3>
         <div class="tune">
           <div class="knob"><label for="fpc">期望位置环带宽 fpc</label>
-            <div class="row"><input type="range" id="fpc_r" min="-0.5" max="2.5" step="0.005"><div class="inp"><input id="fpc" type="number" step="any" value="12"><span class="u">Hz</span></div></div></div>
+            <div class="row"><input type="range" id="fpc_r" min="-0.5" max="2.5" step="0.005"><div class="inp"><input id="fpc" type="number" step="any" value="0.5"><span class="u">Hz</span></div></div></div>
           <div class="knob"><label for="vff">速度前馈系数 Kvff</label>
             <div class="row"><input type="range" id="vff_r" min="0" max="100" step="1"><div class="inp"><input id="vff" type="number" step="any" value="0"><span class="u">%</span></div></div></div>
           <div class="knob"><label for="posStep">阶跃仿真幅值</label>
@@ -402,10 +431,10 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <div class="card">
         <h3>观测器整定 <span class="sub">均按前向欧拉离散实现并校核离散极点</span></h3>
         <div class="tune">
-          <div class="knob"><label for="fpll">PLL 自然频率 fn</label>
-            <div class="row"><div class="inp"><input id="fpll" type="number" step="any" value="100"><span class="u">Hz</span></div><div class="inp"><input id="zpll" type="number" step="any" value="0.707"><span class="u">ζ</span></div></div></div>
-          <div class="knob"><label for="femf">反电势观测器带宽 fo</label>
-            <div class="row"><div class="inp"><input id="femf" type="number" step="any" value="1000"><span class="u">Hz</span></div><div class="inp"><input id="zemf" type="number" step="any" value="0.707"><span class="u">ζ</span></div></div></div>
+          <div class="knob"><label for="fpll">PLL 自然频率 fn (PLL_EST_OMEGA)</label>
+            <div class="row"><div class="inp"><input id="fpll" type="number" step="any" value="25"><span class="u">Hz</span></div><div class="inp"><input id="zpll" type="number" step="any" value="1"><span class="u">ζ</span></div></div></div>
+          <div class="knob"><label for="femf">反电势观测器 fo (E_OBS_OMEGA)</label>
+            <div class="row"><div class="inp"><input id="femf" type="number" step="any" value="250"><span class="u">Hz</span></div><div class="inp"><input id="zemf" type="number" step="any" value="1"><span class="u">ζ</span></div></div></div>
           <div class="knob"><label for="smoEta">滑模观测器 安全系数 η / LPF 截止</label>
             <div class="row"><div class="inp"><input id="smoEta" type="number" step="any" value="1.5"><span class="u">η</span></div><div class="inp"><input id="smoLpf" type="number" step="any" value="1000"><span class="u">Hz</span></div></div></div>
           <div class="knob"><label for="flo">负载转矩观测器带宽 fo</label>
@@ -418,6 +447,15 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       </div>
     </div>
 
+    <!-- hardware -->
+    <div class="pane" data-pane="hw" hidden>
+      <div class="card">
+        <h3>硬件参数换算 <span class="sub">原理图参数手动输入，结果按关系式实时计算。默认值取自 ARISCO 驱动板 V1.2 (RX24T, PSS15S92F6-AG)</span></h3>
+        <div class="hint">电机额定/最大电流、母线电压、载波频率、电阻 Rs 等取自左侧参数栏。结果中的 <span class="mono">FW</span> 表示与固件宏定义的对照。</div>
+      </div>
+      <div id="hwGroups" class="pane" style="padding:0"></div>
+    </div>
+
     <!-- export -->
     <div class="pane" data-pane="exp" hidden>
       <div class="card">
@@ -425,6 +463,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
           <div class="seg" role="group" aria-label="导出格式" id="expSeg">
             <button type="button" data-fmt="c" aria-pressed="true">C 头文件</button>
             <button type="button" data-fmt="m" aria-pressed="false">MATLAB / Simulink</button>
+            <button type="button" data-fmt="rn" aria-pressed="false">瑞萨 cfg 宏</button>
             <button type="button" data-fmt="json" aria-pressed="false">JSON</button>
           </div>
           <div class="sp"></div>
@@ -450,6 +489,9 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <a href="#h-obs">7. 观测器</a>
       <a href="#h-pu">8. 标幺化</a>
       <a href="#h-tips">9. 调试建议</a>
+      <a href="#h-tf">10. 坐标变换约定</a>
+      <a href="#h-hw">11. 硬件换算关系</a>
+      <a href="#h-fw">12. 瑞萨固件公式对照</a>
     </nav>
     <article id="helpBody">
       <section id="h-arch">
@@ -620,6 +662,46 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         </table>
         <p>参数辨识误差的影响：电感偏差主要影响电流环增益（带宽按比例变化），电阻偏差只影响 PI 零点（低频）。惯量偏差直接按比例改变速度环带宽。</p>
       </section>
+
+      <section id="h-tf">
+        <h3>10. 坐标变换约定</h3>
+        <p>同一台电机在两种 Clarke/Park 约定下 L、R 不变，但 dq 电流、电压、磁链的数值不同，速度环增益（A/(rad/s)）也随之变化。电流环增益（V/A）两种约定相同。</p>
+        <table>
+          <tr><th></th><th>等幅值 (2/3 变换)</th><th>等功率 / 瑞萨 absolute (\(\sqrt{2/3}\) 变换)</th></tr>
+          <tr><td>dq 电流幅值</td><td>\(|i_{dq}| = I_{pk}\)</td><td>\(|i_{dq}| = \sqrt{3/2}\,I_{pk} = \sqrt3\,I_{rms}\)</td></tr>
+          <tr><td>永磁磁链</td><td>\(\psi_f\)（相反电势峰值 / \(\omega_e\)）</td><td>\(\psi_a = \sqrt{3/2}\,\psi_f\)</td></tr>
+          <tr><td>转矩</td><td>\(T_e = \tfrac32 p[\psi_f i_q + (L_d-L_q)i_di_q]\)</td><td>\(T_e = p[\psi_a i_q + (L_d-L_q)i_di_q]\)</td></tr>
+          <tr><td>电压上限</td><td>\(U_{dc}/\sqrt3\)</td><td>\(U_{dc}/\sqrt2\)</td></tr>
+        </table>
+        <p>本工具内部按等幅值计算，输出时乘以 \(k = \sqrt{3/2}\)（等功率）换算速度环增益、电流上限和滑模增益。瑞萨 RX24T 电机库 <span class="mono">motor_current_transform_uvw_dq_abs</span> 为等功率变换，其 <span class="mono">MOTOR_CFG_MAGNETIC_FLUX</span> 即 \(\psi_a\)。</p>
+      </section>
+
+      <section id="h-hw">
+        <h3>11. 硬件换算关系</h3>
+        <h4>11.1 ADC</h4>
+        <div class="eq">\[ \mathrm{LSB} = \frac{V_{ref}}{2^N - 1}\qquad(\text{RX24T: } N = 12,\ V_{ref} = 5\,\mathrm V \Rightarrow 1.221\,\mathrm{mV/LSB}) \]</div>
+        <h4>11.2 相电流采样（低边分流 + 偏置差分放大）</h4>
+        <div class="eq">\[ G = \frac{R_f}{R_g + R_{ser}},\qquad V_b = V_s\frac{R_{b2}}{R_{b1}+R_{b2}},\qquad V_{out} = V_b - G R_{sh}\, i \]</div>
+        <div class="eq">\[ i = (\mathrm{OFFSET} - ad)\cdot\frac{\mathrm{LSB}}{G R_{sh}},\qquad \mathrm{OFFSET} = \frac{V_b}{\mathrm{LSB}},\qquad I_{range} = \frac{\min(V_b,\ V_{ref}-V_b)}{G R_{sh}} \]</div>
+        <p>差分放大要求两侧电阻比一致：同相端的偏置戴维南电阻 \(R_{b1}\parallel R_{b2}\) 应等于 \(R_f\)，否则共模抑制变差、增益偏移。输出 RC 需在采样窗口内建立到 ½ LSB：\(t \approx \tau\ln 2^{N+1}\)。</p>
+        <h4>11.3 母线电压</h4>
+        <div class="eq">\[ K_v = \frac{R_t + R_b}{R_b}K_{buf},\qquad U_{dc} = ad\cdot\mathrm{LSB}\cdot K_v,\qquad f_c = \frac{1}{2\pi (R_t\parallel R_b) C_b} \]</div>
+        <h4>11.4 硬件过流</h4>
+        <div class="eq">\[ I_{trip,cmp} = \frac{V_c R_{c2}/(R_{c1}+R_{c2})}{R_{bus}},\qquad I_{trip,IPM} = \frac{V_{sc(ref)}}{R_{bus}} \]</div>
+        <p>保护层级应满足：软件过流阈值 &lt; 硬件动作电流，且软件阈值落在 ADC 可测范围内。</p>
+        <h4>11.5 PWM 与死区</h4>
+        <div class="eq">\[ N_{cnt} = \frac{f_{TIM}}{2f_{PWM}},\qquad \Delta U_{dt} \approx t_d f_{PWM} U_{dc},\qquad D_{max} = 1 - (t_{AD}+t_d)f_{PWM} \]</div>
+        <p>双电阻低边采样要求下管导通时间覆盖采样窗口，因此占空比上限受限，可用电压低于 \(U_{dc}/\sqrt3\)。死区电压误差与 \(R_sI_N\) 同量级时，低速电流波形畸变明显，应开启电压误差补偿。</p>
+      </section>
+
+      <section id="h-fw">
+        <h3>12. 瑞萨固件公式对照</h3>
+        <p>RX24T 电机库在初始化时由自然频率 \(\omega\)（宏中单位 Hz）和阻尼比 \(\zeta\) 计算增益，属于不对消零点的极点配置法：</p>
+        <div class="eq">\[ \text{电流环: } K_p = 2\zeta\omega L - R_s,\quad k_i = \omega^2 L\,T_s \quad\Rightarrow\quad L s^2 + (R_s + K_p)s + K_i = 0 \]</div>
+        <div class="eq">\[ \text{速度环: } K_p = \frac{2\zeta\omega J}{p\psi_a},\quad k_i = \frac{\omega^2 J}{p\psi_a}T_\omega \]</div>
+        <p><span class="mono">motor_pi_ctrl</span>：<span class="mono">refi += err·ki; out = err·kp + refi</span>，即后向欧拉，<span class="mono">ki</span> 已含采样周期。积分项和输出共用同一个限幅。</p>
+        <p>本工具选“瑞萨固件极点配置”时完全按上式计算；选其他方法时，“瑞萨 cfg 宏”导出会把结果反算成等效的 \(\omega, \zeta\)：\(\omega = \sqrt{K_i/L}\)，\(\zeta = (K_p + R_s)/(2\omega L)\)。</p>
+      </section>
     </article>
   </div>
 </div>
@@ -628,7 +710,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
 "use strict";
 const $ = id => document.getElementById(id);
 const TAU = 2 * Math.PI;
-const STORE = 'pmsm-tuner-v1';
+const STORE = 'pmsm-tuner-v2';
 
 /* ---------- complex numbers ---------- */
 const C = (re, im = 0) => ({ re, im });
@@ -675,6 +757,7 @@ function fmt(x, p = 4) {
   if (a < 1e-3 || a >= 1e6) return x.toExponential(p - 1).replace('e+', 'e');
   return String(+x.toPrecision(p));
 }
+const cflt = x => { let t = fmt(x, 7); if (!/[.e]/.test(t)) t += '.0'; return t + 'f'; };
 const fmtHz = f => !isFinite(f) ? '—' : f >= 1000 ? fmt(f / 1000, 3) + ' kHz' : fmt(f, 3) + ' Hz';
 const fmtT = t => !isFinite(t) ? '—' : t < 1e-3 ? fmt(t * 1e6, 3) + ' µs' : t < 1 ? fmt(t * 1e3, 3) + ' ms' : fmt(t, 3) + ' s';
 const deg = r => r * 180 / Math.PI;
@@ -688,7 +771,7 @@ function piCoef(Kp, Ki, T, m) {
 const DISC_NAME = { be: '后向欧拉', fe: '前向欧拉', tu: 'Tustin' };
 
 /* ---------- parameters ---------- */
-const FIELDS = ['motorType','Rs','Ld','Lq','pp','fluxMode','fluxVal','Jm','JL','Bv','Irated','Imax','nRated','nMax','Vdc','fsw','upd','nd','disc','Nw','ff','Np','enc','Vb','Ib','nb',
+const FIELDS = ['motorType','tf','zcc','zsc','Rs','Ld','Lq','pp','fluxMode','fluxVal','Jm','JL','Bv','Irated','Imax','nRated','nMax','Vdc','fsw','upd','nd','disc','Nw','ff','Np','enc','Vb','Ib','nb',
   'fcc','curMethod','curStep','spdMethod','fsc','Nz','aSO','ktMode','spdStep','loadPct','fpc','vff','posStep','fpll','zpll','femf','zemf','smoEta','smoLpf','flo','zlo'];
 const DEFAULTS = {};
 function captureDefaults() { FIELDS.forEach(id => DEFAULTS[id] = $(id).value); }
@@ -700,7 +783,8 @@ function readP() {
   P.Rs = v('Rs'); P.Ld = v('Ld') * 1e-3; P.Lq = P.type === 'spm' ? P.Ld : v('Lq') * 1e-3;
   P.p = Math.max(1, Math.round(v('pp')));
   const fm = $('fluxMode').value, fv = v('fluxVal');
-  P.psi = fm === 'psi' ? fv : fm === 'ke' ? fv * Math.SQRT2 / (Math.sqrt(3) * P.p * 1000 * TAU / 60) : fv / (1.5 * P.p);
+  P.tf = $('tf').value; P.kT = P.tf === 'pow' ? Math.sqrt(1.5) : 1;
+  P.psi = fm === 'psi' ? fv : fm === 'psia' ? fv / Math.sqrt(1.5) : fm === 'ke' ? fv * Math.SQRT2 / (Math.sqrt(3) * P.p * 1000 * TAU / 60) : fv / (1.5 * P.p);
   P.J = (v('Jm') + v('JL')) * 1e-4; P.Jm = v('Jm') * 1e-4; P.B = v('Bv') || 0;
   P.In = v('Irated'); P.Imax = v('Imax'); P.nN = v('nRated'); P.nMax = v('nMax'); P.Vdc = v('Vdc');
   P.fsw = v('fsw'); P.upd = $('upd').value; P.Nd = parseInt($('nd').value, 10); P.disc = $('disc').value;
@@ -787,7 +871,10 @@ function designCurrent(P) {
   const ax = L => {
     const a = Math.exp(-P.Rs * P.Ts / L), b = (1 - a) / P.Rs;
     let Kp, Ki, b0, b1;
-    if (m === 'zd') {
+    if (m === 'fw') {
+      const zc = parseFloat($('zcc').value) || 1;
+      Kp = 2 * zc * wc * L - P.Rs; Ki = wc * wc * L; ({ b0, b1 } = piCoef(Kp, Ki, P.Ts, P.disc));
+    } else if (m === 'zd') {
       const K = 1 - Math.exp(-wc * P.Ts);
       b0 = K / b; b1 = -a * b0;
       // equivalent continuous gains for the chosen discretization
@@ -838,7 +925,11 @@ function designSpeed(P, cur) {
   const wf = P.ff > 0 ? TAU * P.ff : Infinity;
   let Kp, Ki, wsc, N, a;
   const Tsig = 1 / wcc + (isFinite(wf) ? 1 / wf : 0) + P.Tw;
-  if (m === 'so') {
+  if (m === 'fw') {
+    const zs = parseFloat($('zsc').value) || 1;
+    wsc = TAU * parseFloat($('fsc').value);
+    Kp = 2 * zs * wsc * P.J / P.Kt; Ki = wsc * wsc * P.J / P.Kt; N = 2 * zs;
+  } else if (m === 'so') {
     a = parseFloat($('aSO').value) || 2.4;
     Kp = P.J / (a * P.Kt * Tsig); const Ti = a * a * Tsig; Ki = Kp / Ti; wsc = 1 / (a * Tsig); N = a;
   } else {
@@ -1107,6 +1198,7 @@ function compute() {
   renderSpeed(P, cur, spd);
   renderPos(P, spd, pos);
   renderObs(P, obs);
+  R.hw = computeHW(P); renderHW(R.hw);
   renderExport();
   save();
 }
@@ -1124,7 +1216,8 @@ function renderDerived(P, cur, spd, pos) {
     ['控制周期 Ts', fmtT(P.Ts) + ` <small>fs = ${fmtHz(P.fs)}</small>`],
     ['等效延时 Td=(Nd+0.5)Ts', fmtT(P.Td)],
     ['速度环 / 位置环周期', fmtT(P.Tw) + ' / ' + fmtT(P.Tp)],
-    ['永磁磁链 ψf', fmt(P.psi, 4) + '<small>Wb</small>'],
+    ['ψf (峰值) / ψa (等功率)', fmt(P.psi, 4) + ' / ' + fmt(P.psi * Math.sqrt(1.5), 4) + '<small>Wb</small>'],
+    ['坐标变换', P.tf === 'pow' ? '等功率 <small>|idq|=√1.5·Ipk</small>' : '等幅值 <small>|idq|=Ipk</small>'],
     ['Kt (id=0)', fmt(P.Kt0, 4) + '<small>N·m/A</small>'],
     ...(P.type === 'ipm' ? [['MTPA @ IN: id / iq', fmt(P.idM, 3) + ' / ' + fmt(P.iqM, 3) + '<small>A</small>'], ['Kt,eff (MTPA)', fmt(P.KtM, 4) + '<small>N·m/A</small>'], ['凸极比 Lq/Ld', fmt(P.Lq / P.Ld, 3)]] : []),
     ['额定转矩 TN', fmt(P.TN, 4) + '<small>N·m</small>'],
@@ -1154,7 +1247,9 @@ function renderDerived(P, cur, spd, pos) {
 
 function renderCurrent(P, cur) {
   const { d, q } = cur;
-  $('curMethodHint').textContent = cur.m === 'zd' ? `K = 1−e^(−ωcc·Ts) = ${fmt(1 - Math.exp(-cur.wc * P.Ts), 4)}；Nd=1 时 K≤0.25 无超调` : `PI 零点 Ki/Kp = Rs/L，离散化方法：${DISC_NAME[P.disc]}`;
+  $('kZc').hidden = cur.m !== 'fw';
+  $('fccLbl').textContent = cur.m === 'fw' ? '自然频率 fn (CURRENT_CFG_OMEGA)' : '期望电流环带宽 fcc';
+  $('curMethodHint').textContent = cur.m === 'fw' ? `Kp = 2ζωn·L − Rs，Ki = ωn²·L；固件 motor_pi_ctrl 为后向欧拉，ki 存 Ki·Ts` : cur.m === 'zd' ? `K = 1−e^(−ωcc·Ts) = ${fmt(1 - Math.exp(-cur.wc * P.Ts), 4)}；Nd=1 时 K≤0.25 无超调` : `PI 零点 Ki/Kp = Rs/L，离散化方法：${DISC_NAME[P.disc]}`;
   const axRows = (n, a, Ts) => secRow(n + ' 轴') +
     row('比例增益', `Kp${n}`, a.Kp, 'V/A') +
     row('积分增益', `Ki${n}`, a.Ki, 'V/(A·s)') +
@@ -1184,29 +1279,31 @@ function renderCurrent(P, cur) {
 }
 
 function renderSpeed(P, cur, spd) {
-  $('kFsc').hidden = spd.m === 'so'; $('kN').hidden = spd.m === 'so'; $('kA').hidden = spd.m !== 'so';
+  $('kFsc').hidden = spd.m === 'so'; $('kN').hidden = spd.m !== 'bw'; $('kA').hidden = spd.m !== 'so'; $('kZs').hidden = spd.m !== 'fw';
+  $('fscLbl').textContent = spd.m === 'fw' ? '自然频率 fn (SPEED_CFG_OMEGA)' : '期望速度环带宽 fsc';
+  const k = P.kT;
   $('kKt').hidden = P.type !== 'ipm';
   const rpm = TAU / 60;
   $('spdTbl').innerHTML = TH +
-    secRow('速度 PI（输入 rad/s 机械，输出 iq* A）') +
-    row('比例增益', 'Kpω', spd.Kp, 'A/(rad/s)') +
-    row('积分增益', 'Kiω', spd.Ki, 'A/rad') +
-    row('比例增益 (rpm)', 'Kpω', spd.Kp * rpm, 'A/rpm') +
-    row('积分增益 (rpm)', 'Kiω', spd.Ki * rpm, 'A/(rpm·s)') +
+    secRow(`速度 PI（输入机械 rad/s，输出 iq* = ${P.tf === 'pow' ? '等功率 dq 电流 √1.5·Ipk' : '等幅值 dq 电流 = Ipk'}）`) +
+    row('比例增益', 'Kpω', spd.Kp * k, 'A/(rad/s)') +
+    row('积分增益', 'Kiω', spd.Ki * k, 'A/rad') +
+    row('比例增益 (rpm)', 'Kpω', spd.Kp * k * rpm, 'A/rpm') +
+    row('积分增益 (rpm)', 'Kiω', spd.Ki * k * rpm, 'A/(rpm·s)') +
     row('积分时间常数', 'Ti=Kp/Ki', spd.Kp / spd.Ki, 's') +
-    row('离散积分系数', 'Kiω·Tω', spd.Ki * P.Tw, 'A/(rad/s)') +
+    row('离散积分系数', 'Kiω·Tω', spd.Ki * k * P.Tw, 'A/(rad/s)') +
     row('串联式积分系数', "Ki'=Tω/Ti", spd.Ki * P.Tw / spd.Kp, '—') +
-    row('增量式系数', 'b0', spd.b0, 'A/(rad/s)') +
-    row('增量式系数', 'b1', spd.b1, 'A/(rad/s)') +
+    row('增量式系数', 'b0', spd.b0 * k, 'A/(rad/s)') +
+    row('增量式系数', 'b1', spd.b1 * k, 'A/(rad/s)') +
     row('标幺 Kp', 'Kpω,pu', spd.Kp * P.wmb / P.Ib, '—') +
     row('标幺 Ki·Tω', 'Kiω,pu·Tω', spd.Ki * P.Tw * P.wmb / P.Ib, '—') +
     secRow('设计依据') +
     row('设计穿越频率', 'ωsc', spd.wsc, 'rad/s') +
-    row('转矩常数', 'Kt', P.Kt, 'N·m/A') +
+    row('转矩常数 (dq)', P.tf === 'pow' ? 'Kt=p·ψa' : 'Kt=1.5pψf', P.Kt / k, 'N·m/A') +
     row('总惯量', 'J', P.J, 'kg·m²') +
     row('等效小时间常数', 'TΣ', spd.Tsig, 's') +
     row('测速滤波系数', 'α=1−e^(−ωfTω)', spd.alpha, '—') +
-    row('输出限幅', 'Imax', P.Imax, 'A');
+    row('输出限幅 (dq)', 'Imax', P.Imax * k, 'A');
   const s = spd.sim;
   const lp = (parseFloat($('loadPct').value) || 0) > 0;
   const soPM = spd.m === 'so' ? deg(Math.asin((spd.a * spd.a - 1) / (spd.a * spd.a + 1))) : NaN;
@@ -1219,7 +1316,7 @@ function renderSpeed(P, cur, spd) {
     metric('阶跃超调', fmt(s.met.os, 3) + '%', s.met.os < 15 ? 'ok' : s.met.os < 35 ? 'warn' : 'bad') +
     metric('调节时间 2%', fmtT(s.met.ts)) +
     (lp ? metric('负载跌落', fmt(s.dip, 3) + ' rpm') + metric('负载恢复 2%', fmtT(s.rec)) : '');
-  $('spdNote').innerHTML = (spd.m === 'so' ? `对称最优理论 PM = ${fmt(soPM, 3)}°（连续域），离散校核值见上。` : `带宽法理论 PM ≈ arctan(N) = ${fmt(deg(Math.atan(spd.N)), 3)}°，离散校核计入内环、ZOH、测速与滤波后的实际值见上。`) +
+  $('spdNote').innerHTML = (spd.m === 'fw' ? `瑞萨固件公式：Kp = 2ζωn·J/Kt，Ki = ωn²·J/Kt（固件存 Ki·Tω）。` : spd.m === 'so' ? `对称最优理论 PM = ${fmt(soPM, 3)}°（连续域），离散校核值见上。` : `带宽法理论 PM ≈ arctan(N) = ${fmt(deg(Math.atan(spd.N)), 3)}°，离散校核计入内环、ZOH、测速与滤波后的实际值见上。`) +
     ` 仿真：t=0 速度阶跃${lp ? `，t=${fmtT(s.Tload)} 施加 ${fmt(s.Tl, 3)} N·m 负载` : ''}；电流限幅 ±${fmt(P.Imax, 3)} A。`;
   bode($('spdBode'), [{ sw: spd.sw, c: 'var(--ch1)', cl: true }], { vlines: [{ v: spd.fsc, c: 'var(--accent)', label: 'fsc' }] });
   const el = $('spdStepP');
@@ -1271,7 +1368,7 @@ function renderObs(P, o) {
     row('额定转速下幅值比', '|ê/e|', emf.gainN, '—') +
     row('额定转速下相位', '∠ê/e', emf.phN, '°') +
     secRow('滑模观测器 SMO') +
-    row('滑模增益', 'k=η·ωe,max·ψf', smo.k, 'V') +
+    row('滑模增益 (dq 电压尺度)', 'k=η·ωe,max·ψ', smo.k * P.kT, 'V') +
     row('LPF 截止', 'ωc', smo.wlp, 'rad/s') +
     row('LPF 离散系数', 'α=1−e^(−ωcTs)', smo.alpha, '—') +
     row('额定转速相位补偿', 'arctan(ωe/ωc)', smo.lagN, '°') +
@@ -1282,7 +1379,7 @@ function renderObs(P, o) {
     row('转矩误差增益', 'l2=Jωo²', lo.l2, 'N·m/(rad/s)·1/s') +
     row('离散系数', 'l1·Tω', lo.l1 * P.Tw, '—') +
     row('离散系数', 'l2·Tω', lo.l2 * P.Tw, 'N·m/(rad/s)') +
-    row('补偿电流系数', '1/Kt', lo.Kcomp, 'A/(N·m)');
+    row('补偿电流系数', '1/Kt', lo.Kcomp * P.kT, 'A/(N·m)');
   const mx = p => Math.max(...p.map(cabs));
   const cls = r => r < 0.98 ? 'ok' : r < 1 ? 'warn' : 'bad';
   $('obsMet').innerHTML =
@@ -1298,33 +1395,39 @@ function renderObs(P, o) {
 let expFmt = 'c';
 function renderExport() {
   if (!R) return;
-  const { P, cur, spd, pos, obs } = R;
+  const { P, cur, spd, pos, obs, hw } = R;
   const f = x => fmt(x, 7);
+  const k = P.kT;
+  if (expFmt === 'rn') { $('code').textContent = renesasCfg(R); return; }
   const now = new Date().toISOString().slice(0, 10);
   const vals = [
     ['基本参数', [
       ['MOTOR_RS', P.Rs, 'Ω'], ['MOTOR_LD', P.Ld, 'H'], ['MOTOR_LQ', P.Lq, 'H'], ['MOTOR_PSI_F', P.psi, 'Wb'], ['MOTOR_POLE_PAIRS', P.p, ''],
-      ['MOTOR_J', P.J, 'kg·m²'], ['MOTOR_B', P.B, 'N·m·s/rad'], ['MOTOR_KT', P.Kt, 'N·m/A'], ['VDC', P.Vdc, 'V'], ['V_MAX', P.Vmax, 'V, Udc/√3'], ['I_MAX', P.Imax, 'A'],
+      ['MOTOR_J', P.J, 'kg·m²'], ['MOTOR_B', P.B, 'N·m·s/rad'], ['MOTOR_KT', P.Kt, 'N·m/A'], ['VDC', P.Vdc, 'V'], ['V_MAX', P.Vmax * k, 'V, dq 电压上限'], ['I_MAX', P.Imax * k, 'A, dq 电流上限'],
       ['CTRL_TS', P.Ts, 's, 电流环周期'], ['SPD_TS', P.Tw, 's, 速度环周期'], ['POS_TS', P.Tp, 's, 位置环周期']]],
     [`电流环 (fcc=${fmt(cur.fcc, 4)} Hz, ${cur.m === 'zd' ? 'z域对消' : 'IMC'}, ${DISC_NAME[P.disc]})`, [
       ['ID_KP', cur.d.Kp, 'V/A'], ['ID_KI', cur.d.Ki, 'V/(A·s)'], ['ID_KI_TS', cur.d.Ki * P.Ts, 'Ki·Ts'], ['ID_B0', cur.d.b0, '增量式'], ['ID_B1', cur.d.b1, '增量式'],
       ['IQ_KP', cur.q.Kp, 'V/A'], ['IQ_KI', cur.q.Ki, 'V/(A·s)'], ['IQ_KI_TS', cur.q.Ki * P.Ts, 'Ki·Ts'], ['IQ_B0', cur.q.b0, '增量式'], ['IQ_B1', cur.q.b1, '增量式'],
       ['ID_KP_PU', cur.d.Kp * P.Ib / P.Vb, '标幺'], ['ID_KI_TS_PU', cur.d.Ki * P.Ts * P.Ib / P.Vb, '标幺'], ['IQ_KP_PU', cur.q.Kp * P.Ib / P.Vb, '标幺'], ['IQ_KI_TS_PU', cur.q.Ki * P.Ts * P.Ib / P.Vb, '标幺']]],
     [`速度环 (fsc=${fmt(spd.fsc, 4)} Hz, PM=${fmt(spd.sw.pm, 3)}°)`, [
-      ['SPD_KP', spd.Kp, 'A/(rad/s) 机械'], ['SPD_KI', spd.Ki, 'A/rad'], ['SPD_KI_TS', spd.Ki * P.Tw, 'Ki·Tω'], ['SPD_B0', spd.b0, '增量式'], ['SPD_B1', spd.b1, '增量式'],
+      ['SPD_KP', spd.Kp * k, 'A/(rad/s) 机械'], ['SPD_KI', spd.Ki * k, 'A/rad'], ['SPD_KI_TS', spd.Ki * k * P.Tw, 'Ki·Tω'], ['SPD_B0', spd.b0 * k, '增量式'], ['SPD_B1', spd.b1 * k, '增量式'],
       ['SPD_FILT_ALPHA', spd.alpha, '一阶IIR系数'], ['SPD_KP_PU', spd.Kp * P.wmb / P.Ib, '标幺'], ['SPD_KI_TS_PU', spd.Ki * P.Tw * P.wmb / P.Ib, '标幺']]],
     [`位置环 (fpc=${fmt(pos.fpc, 4)} Hz)`, [
       ['POS_KP', pos.Kpp, '1/s'], ['POS_KVFF', pos.vff, ''], ['POS_KAFF', pos.Kaff, 'A/(rad/s²)'], ['POS_KP_PU', pos.Kpp * TAU / P.wmb, '标幺']]],
     ['观测器', [
       ['PLL_KP', obs.pll.Kp, '1/s'], ['PLL_KI_TS', obs.pll.Ki * P.Ts, ''],
       ['EMF_KP', obs.emf.Kp, 'Ω'], ['EMF_KI_TS', obs.emf.Ki * P.Ts, 'Ω'], ['EMF_TS_LQ', P.Ts / P.Lq, 'Ts/Lq'],
-      ['SMO_K', obs.smo.k, 'V'], ['SMO_LPF_ALPHA', obs.smo.alpha, ''],
-      ['TLOBS_L1_TS', obs.lo.l1 * P.Tw, ''], ['TLOBS_L2_TS', obs.lo.l2 * P.Tw, ''], ['TLOBS_KCOMP', obs.lo.Kcomp, 'A/(N·m)']]],
+      ['SMO_K', obs.smo.k * k, 'V'], ['SMO_LPF_ALPHA', obs.smo.alpha, ''],
+      ['TLOBS_L1_TS', obs.lo.l1 * P.Tw, ''], ['TLOBS_L2_TS', obs.lo.l2 * P.Tw, ''], ['TLOBS_KCOMP', obs.lo.Kcomp * k, 'A/(N·m)']]],
+    ['硬件采样换算', [
+      ['ADC_FULL_SCALE', hw.v.adcMax, 'LSB'], ['ADC_VREF', hw.v.vref, 'V'], ['ADC_I_OFFSET', Math.floor(hw.v.offCode), 'LSB, 零电流码值'],
+      ['ADC_A_PER_LSB', hw.v.aLsb, 'A/LSB, i = (OFFSET − ad)·k'], ['ADC_VDC_PER_LSB', hw.v.vLsbDc, 'V/LSB'], ['ADC_TEMP_PER_LSB', hw.v.tLsb, '°C/LSB'],
+      ['PWM_PERIOD_CNT', Math.round(hw.v.cnt), '三角波半周期计数'], ['PWM_DEADTIME_CNT', Math.round(hw.v.dcnt), '']]],
   ];
   let s = '';
   if (expFmt === 'c') {
-    s = `/* PMSM 控制参数 — 由 PMSM 控制参数整定工具生成 (${now})\n * 单位: SI, 速度为机械 rad/s, 电流为相电流峰值 (等幅值变换)\n * 增量式 PI: u[k] = sat(u[k-1] + B0*e[k] + B1*e[k-1])\n */\n#ifndef PMSM_PARAMS_H\n#define PMSM_PARAMS_H\n\n`;
-    vals.forEach(([h, rows]) => { s += `/* ---- ${h} ---- */\n`; rows.forEach(([n, v, u]) => s += `#define ${n.padEnd(18)} (${f(v)}f)${u ? `   /* ${u} */` : ''}\n`); s += '\n'; });
+    s = `/* PMSM 控制参数 — 由 PMSM 控制参数整定工具生成 (${now})\n * 单位: SI, 速度为机械 rad/s, dq 量按${P.tf === 'pow' ? '等功率变换 (|idq| = √3·Irms)' : '等幅值变换 (|idq| = Ipk)'}\n * 增量式 PI: u[k] = sat(u[k-1] + B0*e[k] + B1*e[k-1])\n */\n#ifndef PMSM_PARAMS_H\n#define PMSM_PARAMS_H\n\n`;
+    vals.forEach(([h, rows]) => { s += `/* ---- ${h} ---- */\n`; rows.forEach(([n, v, u]) => s += `#define ${n.padEnd(18)} (${cflt(v)})${u ? `   /* ${u} */` : ''}\n`); s += '\n'; });
     s += `#endif /* PMSM_PARAMS_H */\n`;
   } else if (expFmt === 'm') {
     s = `%% PMSM 控制参数 — 由 PMSM 控制参数整定工具生成 (${now})\n% 可直接用于 Simulink: Discrete PID 块 (Parallel, ${DISC_NAME[P.disc]}) 填 Kp / Ki, Sample time 填对应 Ts\n\n`;
@@ -1336,6 +1439,193 @@ function renderExport() {
     s = JSON.stringify({ inputs: o, results: res }, null, 2);
   }
   $('code').textContent = s;
+}
+
+/* ============ HARDWARE ============ */
+const HW = [
+  { id: 'adc', title: 'MCU ADC', sub: 'RX24T S12AD：12 位，AVCC0/VREFH0 = 5 V', fields: [
+    ['adcBits', 'ADC 分辨率', 'N', 'bit', 12], ['adcVref', 'ADC 参考电压', 'Vref', 'V', 5], ['adcClk', 'ADC 时钟', 'fAD', 'MHz', 40], ['tAd', '电流采样窗口 (采样+转换)', 'tAD', 'µs', 6]] },
+  { id: 'isn', title: '相电流采样', sub: '低边分流电阻 + 差分放大 + 2.5 V 偏置（R83/R840、U10、R89~R93、R111）', fields: [
+    ['rsh', '采样电阻', 'Rsh', 'mΩ', 20], ['rser', '采样线串联电阻 (每边)', 'Rser', 'Ω', 10], ['rg', '差放输入电阻', 'Rg', 'kΩ', 2.2], ['rf', '差放反馈电阻', 'Rf', 'kΩ', 10],
+    ['rb1', '偏置上拉 (到 Vs)', 'Rb1', 'kΩ', 20], ['rb2', '偏置下拉 (到 AGND)', 'Rb2', 'kΩ', 20], ['vbs', '偏置电源', 'Vs', 'V', 5],
+    ['cf', '反馈电容', 'Cf', 'pF', 10], ['rout', '输出 RC 电阻', 'Ro', 'Ω', 470], ['cout', '输出 RC 电容', 'Co', 'pF', 220],
+    ['fwGain', '固件 CURRENT_AMP_GAIN', 'FW', '', 4.545], ['fwOff', '固件 ADC_OFFSET', 'FW', 'LSB', 2047]] },
+  { id: 'vdc', title: '母线电压采样', sub: 'R190~R193 (4×249 kΩ) / R194 10 kΩ + TLV9062 跟随', fields: [
+    ['rvt', '分压上臂总电阻', 'Rt', 'kΩ', 996], ['rvb', '分压下臂电阻', 'Rb', 'kΩ', 10], ['kbuf', '缓冲放大倍数', 'Kbuf', '', 1], ['cvb', '下臂滤波电容', 'Cb', 'nF', 100],
+    ['vov', '软件过压阈值', 'UOV', 'V', 380], ['vuv', '软件欠压阈值', 'UUV', 'V', 160], ['fwVg', '固件 VOLTAGE_GAIN', 'FW', '', 100.6]] },
+  { id: 'oc', title: '硬件过流保护', sub: '母线采样电阻 R88 → IPM CIN 与比较器 U18-B → CIN_FO/POE', fields: [
+    ['rbus', '母线采样电阻', 'Rbus', 'mΩ', 15], ['rc1', '比较器基准上拉', 'Rc1', 'kΩ', 47], ['rc2', '比较器基准下拉', 'Rc2', 'kΩ', 4.99], ['vcs', '基准电源', 'Vc', 'V', 5],
+    ['vcin', 'IPM CIN 短路阈值 Vsc(ref)', 'Vsc', 'V', 0.48], ['rcin', 'CIN 滤波电阻', 'Rcin', 'Ω', 470], ['ccin', 'CIN 滤波电容', 'Ccin', 'pF', 220], ['ocMul', '软件过流倍数 (×额定峰值)', 'kOC', '', 1.5]] },
+  { id: 'tmp', title: 'IPM 温度 (VOT)', sub: '线性近似 T = V·KT − T0', fields: [
+    ['tg', '温度增益', 'KT', '°C/V', 40], ['toff', '温度偏置', 'T0', '°C', 20], ['tot', '过温阈值', 'TOT', '°C', 100]] },
+  { id: 'pwm', title: 'PWM 定时器', sub: 'MTU3/MTU4 互补 PWM，三角波载波', fields: [
+    ['ftim', '定时器时钟', 'fTIM', 'MHz', 80], ['tdead', '死区时间', 'td', 'µs', 2], ['tmin', 'IPM 最小脉宽', 'tmin', 'µs', 0.7]] },
+];
+const HW_IDS = HW.flatMap(g => g.fields.map(f => f[0]));
+function buildHW() {
+  $('hwGroups').innerHTML = HW.map(g => `<div class="card"><h3>${g.title} <span class="sub">${g.sub}</span></h3><div class="hwrow">
+    <div class="fields">${g.fields.map(([id, lab, sym, u, v]) => `<div class="f"><label for="${id}"><b>${sym}</b>${lab}</label><div class="inp"><input id="${id}" type="number" step="any" value="${v}"><span class="u">${u}</span></div></div>`).join('')}</div>
+    <div class="tblwrap"><table class="g" id="hw_${g.id}"></table></div></div></div>`).join('');
+}
+function computeHW(P) {
+  const g = id => parseFloat($(id).value);
+  const v = {}, out = {};
+  const Inrms = P.In / Math.SQRT2;
+  // ADC
+  v.N = Math.round(g('adcBits')); v.adcMax = Math.pow(2, v.N) - 1; v.vref = g('adcVref');
+  v.vLsb = v.vref / v.adcMax;
+  out.adc = [
+    ['满量程码值', '2^N − 1', v.adcMax, 'LSB'],
+    ['电压分辨率', 'Vref/(2^N−1)', v.vLsb * 1e3, 'mV/LSB'],
+    ['ADC 时钟周期', '1/fAD', 1e3 / g('adcClk'), 'ns'],
+    ['采样窗口 / 控制周期', 'tAD·fs', g('tAd') * 1e-6 * P.fs * 100, '%'],
+  ];
+  // current sense
+  const rsh = g('rsh') * 1e-3, G = g('rf') * 1e3 / (g('rg') * 1e3 + g('rser'));
+  const vb = g('vbs') * g('rb2') / (g('rb1') + g('rb2')), Kg = G * rsh;
+  v.G = G; v.offCode = vb / v.vLsb; v.aLsb = v.vLsb / Kg;
+  const ipos = vb / Kg, ineg = (v.vref - vb) / Kg, irng = Math.min(ipos, ineg);
+  const rth = g('rb1') * g('rb2') / (g('rb1') + g('rb2'));
+  const fwA = v.vLsb / (g('fwGain') * rsh);
+  const tauO = g('rout') * g('cout') * 1e-12, tSet = tauO * Math.log(Math.pow(2, v.N + 1));
+  const ocSw = g('ocMul') * P.In;
+  out.isn = [
+    ['差放增益', 'G = Rf/(Rg+Rser)', G, 'V/V'],
+    ['偏置电压 (零电流)', 'Vb = Vs·Rb2/(Rb1+Rb2)', vb, 'V'],
+    ['零电流码值', 'Vb/Vref·(2^N−1)', v.offCode, 'LSB', Math.abs(v.offCode - g('fwOff')) <= 2 ? 'ok' : 'warn'],
+    ['电流-电压系数', 'Ki = G·Rsh', Kg * 1e3, 'mV/A'],
+    ['电流分辨率', 'Vref/(2^N−1)/(G·Rsh)', v.aLsb * 1e3, 'mA/LSB'],
+    ['可测范围 (输出→0 V)', 'Vb/(G·Rsh)', ipos, 'A'],
+    ['可测范围 (输出→Vref)', '(Vref−Vb)/(G·Rsh)', -ineg, 'A'],
+    ['量程余量', 'min(范围)/Imax', irng / P.Imax, '×', irng / P.Imax >= 1.2 ? 'ok' : irng / P.Imax >= 1 ? 'warn' : 'bad'],
+    ['Imax 对应码值变化', 'Imax·G·Rsh/LSB', P.Imax * Kg / v.vLsb, 'LSB'],
+    ['偏置等效电阻匹配', 'Rb1∥Rb2 = Rf ?', rth, 'kΩ', Math.abs(rth / g('rf') - 1) < 0.02 ? 'ok' : 'warn'],
+    ['采样电阻压降 @Imax', 'Imax·Rsh', P.Imax * rsh * 1e3, 'mV'],
+    ['采样电阻功耗 @IN', 'IN,rms²·Rsh (上限)', Inrms * Inrms * rsh, 'W'],
+    ['反馈极点', '1/(2π·Rf·Cf)', 1 / (TAU * g('rf') * 1e3 * g('cf') * 1e-12) / 1e3, 'kHz'],
+    ['输出 RC 截止', '1/(2π·Ro·Co)', 1 / (TAU * tauO) / 1e3, 'kHz'],
+    ['输出 RC 建立到 ½LSB', 'τ·ln(2^(N+1))', tSet * 1e6, 'µs', tSet * 1e6 < g('tAd') ? 'ok' : 'warn'],
+    ['FW 增益误差', 'G/FW − 1', (G / g('fwGain') - 1) * 100, '%', Math.abs(G / g('fwGain') - 1) < 0.01 ? 'ok' : 'warn'],
+    ['FW 电流系数', 'Vref/4095/(FW·Rsh)', fwA * 1e3, 'mA/LSB'],
+  ];
+  // Vdc
+  const Kv = (g('rvt') + g('rvb')) / g('rvb') * g('kbuf');
+  v.Kv = Kv; v.vLsbDc = v.vLsb * Kv;
+  const rthv = g('rvt') * g('rvb') / (g('rvt') + g('rvb')) * 1e3, tauV = rthv * g('cvb') * 1e-9;
+  out.vdc = [
+    ['分压比', 'K = (Rt+Rb)/Rb·Kbuf', Kv, 'V/V', Math.abs(Kv / g('fwVg') - 1) < 0.005 ? 'ok' : 'warn'],
+    ['满量程母线电压', 'Vref·K', v.vref * Kv, 'V', v.vref * Kv > g('vov') * 1.05 ? 'ok' : 'bad'],
+    ['电压分辨率', 'Vref·K/(2^N−1)', v.vLsbDc, 'V/LSB'],
+    ['额定 Udc 码值', 'Udc/K/LSB', P.Vdc / Kv / v.vLsb, 'LSB'],
+    ['过压阈值码值', 'UOV/K/LSB', g('vov') / Kv / v.vLsb, 'LSB'],
+    ['欠压阈值码值', 'UUV/K/LSB', g('vuv') / Kv / v.vLsb, 'LSB'],
+    ['滤波截止', '1/(2π·(Rt∥Rb)·Cb)', 1 / (TAU * tauV), 'Hz'],
+    ['滤波时间常数', '(Rt∥Rb)·Cb', tauV * 1e3, 'ms'],
+    ['分压电阻功耗 @UOV', 'UOV²/(Rt+Rb)', g('vov') * g('vov') / ((g('rvt') + g('rvb')) * 1e3) * 1e3, 'mW'],
+    ['FW 误差', 'K/FW − 1', (Kv / g('fwVg') - 1) * 100, '%'],
+  ];
+  // OC
+  const rbus = g('rbus') * 1e-3, vcmp = g('vcs') * g('rc2') / (g('rc1') + g('rc2'));
+  const itC = vcmp / rbus, itI = g('vcin') / rbus;
+  out.oc = [
+    ['比较器基准', 'Vc·Rc2/(Rc1+Rc2)', vcmp, 'V'],
+    ['比较器动作电流', 'Vcmp/Rbus', itC, 'A', itC > ocSw ? 'ok' : 'bad'],
+    ['IPM CIN 动作电流', 'Vsc/Rbus', itI, 'A', itI > ocSw ? 'ok' : 'bad'],
+    ['CIN 滤波时间常数', 'Rcin·Ccin', g('rcin') * g('ccin') * 1e-12 * 1e9, 'ns'],
+    ['软件过流阈值', 'kOC·IN', ocSw, 'A', ocSw < irng ? 'ok' : 'bad'],
+    ['软件阈值 / ADC 量程', 'kOC·IN / 范围', ocSw / irng * 100, '%', ocSw < irng ? 'ok' : 'bad'],
+    ['硬件 / 软件阈值比', 'Itrip/IOC', Math.min(itC, itI) / ocSw, '×'],
+  ];
+  // temperature
+  v.tLsb = v.vLsb * g('tg');
+  out.tmp = [
+    ['温度分辨率', 'Vref/(2^N−1)·KT', v.tLsb, '°C/LSB'],
+    ['过温阈值电压', '(TOT+T0)/KT', (g('tot') + g('toff')) / g('tg'), 'V'],
+    ['过温阈值码值', '(TOT+T0)/KT/LSB', (g('tot') + g('toff')) / g('tg') / v.vLsb, 'LSB'],
+    ['可测温度上限', 'Vref·KT − T0', v.vref * g('tg') - g('toff'), '°C'],
+  ];
+  // PWM
+  const cnt = g('ftim') * 1e6 / (2 * P.fsw), dcnt = g('tdead') * g('ftim');
+  v.cnt = cnt; v.dcnt = dcnt;
+  const dVdt = g('tdead') * 1e-6 * P.fsw * P.Vdc;
+  const Dmax = 1 - (g('tAd') + g('tdead')) * 1e-6 * P.fsw, Dmin = g('tmin') * 1e-6 * P.fsw;
+  const vEff = (Dmax - Dmin) * P.Vdc / Math.sqrt(3);
+  out.pwm = [
+    ['载波周期计数 (半周期)', 'fTIM/(2·fPWM)', cnt, 'cnt'],
+    ['死区计数', 'td·fTIM', dcnt, 'cnt'],
+    ['占空比分辨率', 'log2(计数)', Math.log2(cnt), 'bit'],
+    ['电压分辨率', 'Udc/计数', P.Vdc / cnt, 'V'],
+    ['死区平均电压误差', 'td·fPWM·Udc', dVdt, 'V'],
+    ['死区误差 / Rs·IN', 'ΔUdt/(Rs·IN)', dVdt / (P.Rs * P.In), '×', dVdt / (P.Rs * P.In) < 0.5 ? 'ok' : 'warn'],
+    ['低边采样限制 Dmax', '1 − (tAD+td)·fPWM', Dmax * 100, '%'],
+    ['最小脉宽 Dmin', 'tmin·fPWM', Dmin * 100, '%'],
+    ['可用相电压幅值 (近似)', '(Dmax−Dmin)·Udc/√3', vEff, 'V'],
+    ['线性区上限', 'Udc/√3', P.Vdc / Math.sqrt(3), 'V'],
+    ['额定转速反电势 (相峰值)', 'p·ωm·ψf', P.p * P.nN * TAU / 60 * P.psi, 'V', P.p * P.nN * TAU / 60 * P.psi < vEff ? 'ok' : 'warn'],
+  ];
+  return { v, out };
+}
+function renderHW(hw) {
+  const H = '<tr><th>结果</th><th>关系式</th><th style="text-align:right">数值</th><th>单位</th></tr>';
+  HW.forEach(gp => {
+    $('hw_' + gp.id).innerHTML = H + hw.out[gp.id].map(([n, fx, val, u, st]) =>
+      `<tr><td>${n}</td><td class="fx">${fx}</td><td class="v ${st ? 'st-' + st : ''}">${fmt(val, 5)}${cpBtn(fmt(val, 7))}</td><td class="u">${u}</td></tr>`).join('');
+  });
+}
+function renesasCfg(R) {
+  const { P, cur, spd, obs, hw } = R; const g = id => parseFloat($(id).value);
+  const f = x => fmt(x, 6), cf = x => cflt(x).replace(/f$/, '');
+  const L = P.Lq;
+  // equivalent firmware (ωn, ζ) for the chosen design (q axis / speed)
+  const wcn = Math.sqrt(cur.q.Ki / L), zc = (cur.q.Kp + P.Rs) / (2 * wcn * L);
+  const Ktd = P.Kt / P.kT;
+  const wsn = Math.sqrt(spd.Ki * P.kT * Ktd / P.J), zs = spd.Kp * P.kT * Ktd / (2 * wsn * P.J);
+  const psiOut = P.tf === 'pow' ? P.psi * Math.sqrt(1.5) : P.psi;
+  const L1 = [
+    ['/* r_motor_targetmotor_cfg.h */'],
+    ['MOTOR_CFG_POLE_PAIRS', String(P.p), 'Number of pole pairs'],
+    ['MOTOR_CFG_MAGNETIC_FLUX', cf(psiOut) + 'f', P.tf === 'pow' ? 'ψa = √1.5·ψf [Wb]' : 'ψf [Wb]'],
+    ['MOTOR_CFG_RESISTANCE', cf(P.Rs) + 'f', '[ohm]'],
+    ['MOTOR_CFG_D_INDUCTANCE', cf(P.Ld) + 'f', '[H]'],
+    ['MOTOR_CFG_Q_INDUCTANCE', cf(P.Lq) + 'f', '[H]'],
+    ['MOTOR_CFG_ROTOR_INERTIA', cf(P.J) + 'f', '[kgm^2] (电机+负载)'],
+    ['MOTOR_CFG_NOMINAL_CURRENT_RMS', cf(P.In / Math.SQRT2) + 'f', '[Arms]'],
+    ['MOTOR_CFG_MAX_SPEED_RPM', cf(P.nN) + 'f', '[rpm]'],
+    [''], ['/* r_motor_inverter_cfg.h */'],
+    ['INVERTER_CFG_SHUNT_RESIST', cf(g('rsh') * 1e-3) + 'f', '[ohm]'],
+    ['INVERTER_CFG_DEADTIME', cf(g('tdead')) + 'f', '[us]'],
+    ['INVERTER_CFG_MIN_PULSE_WIDTH', cf(g('tmin')) + 'f', '[us]'],
+    ['INVERTER_CFG_VOLTAGE_GAIN', cf(hw.v.Kv) + 'f', '(Rt+Rb)/Rb·Kbuf'],
+    ['INVERTER_CFG_TEMP_GAIN', cf(g('tg')) + 'f', ''],
+    ['INVERTER_CFG_TEMP_OFFSET', cf(g('toff')) + 'f', ''],
+    ['INVERTER_CFG_CURRENT_AMP_GAIN', cf(hw.v.G) + 'f', 'Rf/(Rg+Rser)'],
+    ['INVERTER_CFG_CURRENT_LIMIT', cf(P.Imax) + 'f', '[A]'],
+    ['INVERTER_CFG_OVERVOLTAGE_LIMIT', cf(g('vov')) + 'f', '[V]'],
+    ['INVERTER_CFG_UNDERVOLTAGE_LIMIT', cf(g('vuv')) + 'f', '[V]'],
+    ['INVERTER_CFG_OVERTEMPERATURE_LIMIT', cf(g('tot')) + 'f', '[degC]'],
+    ['INVERTER_CFG_INPUT_V', cf(P.Vdc) + 'f', '[V]'],
+    ['INVERTER_CFG_ADC_REF_VOLTAGE', cf(hw.v.vref) + 'f', '[V]'],
+    [''], ['/* r_motor_module_cfg.h */'],
+    ['MOTOR_MCU_CFG_PWM_TIMER_FREQ', cf(g('ftim')) + 'f', '[MHz]'],
+    ['MOTOR_MCU_CFG_CARRIER_FREQ', cf(P.fsw / 1000) + 'f', '[kHz]'],
+    ['MOTOR_MCU_CFG_AD_FREQ', cf(g('adcClk')) + 'f', '[MHz]'],
+    ['MOTOR_MCU_CFG_AD12BIT_DATA', cf(hw.v.adcMax) + 'f', ''],
+    ['MOTOR_MCU_CFG_ADC_OFFSET', '(0x' + Math.floor(hw.v.offCode).toString(16).toUpperCase() + ')', '零电流码值 ' + fmt(hw.v.offCode, 6)],
+    ['MOTOR_COMMON_SPEED_LOOP_DIVIDER', '(' + P.Nw + 'U)', ''],
+    ['CURRENT_CFG_OMEGA', cf(wcn / TAU) + 'f', cur.m === 'fw' ? '[Hz]' : '[Hz] 由当前设计等效换算'],
+    ['CURRENT_CFG_ZETA', cf(zc) + 'f', ''],
+    ['CURRENT_CFG_E_OBS_OMEGA', cf(obs.emf.wo / TAU) + 'f', '[Hz]'],
+    ['CURRENT_CFG_E_OBS_ZETA', cf(obs.emf.z) + 'f', ''],
+    ['CURRENT_CFG_PLL_EST_OMEGA', cf(obs.pll.wn / TAU) + 'f', '[Hz]'],
+    ['CURRENT_CFG_PLL_EST_ZETA', cf(obs.pll.z) + 'f', ''],
+    ['SPEED_CFG_OMEGA', cf(wsn / TAU) + 'f', spd.m === 'fw' ? '[Hz]' : '[Hz] 由当前设计等效换算'],
+    ['SPEED_CFG_ZETA', cf(zs) + 'f', ''],
+    ['SPEED_CFG_LPF_OMEGA', cf(P.ff) + 'f', '[Hz]'],
+  ];
+  let s = `/* 瑞萨 RX24T 电机库配置宏 — 由 PMSM 控制参数整定工具生成 (${new Date().toISOString().slice(0, 10)})\n * 按需替换对应头文件中的同名宏；修改前请核对。\n * 固件在线计算: Kp = 2ζω·L − R, ki = ω²·L·Ts (电流环); Kp = 2ζω·J/(p·ψa), ki = ω²·J·Tω/(p·ψa) (速度环)\n */\n`;
+  L1.forEach(r => { if (r.length === 1) s += r[0] + '\n'; else s += `#define     ${r[0].padEnd(36)}(${r[1].replace(/^\(|\)$/g, '')})${r[2] ? '   /* ' + r[2] + ' */' : ''}\n`; });
+  s += `\n/* 固件实际 PI 增益 (运行时由上述 ω、ζ 计算):\n * id: kp = ${f(2 * zc * wcn * P.Ld - P.Rs)}, ki = ${f(wcn * wcn * P.Ld * P.Ts)}\n * iq: kp = ${f(2 * zc * wcn * P.Lq - P.Rs)}, ki = ${f(wcn * wcn * P.Lq * P.Ts)}\n * speed: kp = ${f(2 * zs * wsn * P.J / Ktd)}, ki = ${f(wsn * wsn * P.J / Ktd * P.Tw)}\n * i = (ADC_OFFSET − ad) × ${f(hw.v.aLsb)} A/LSB;  Udc = ad × ${f(hw.v.vLsbDc)} V/LSB\n */\n`;
+  return s;
 }
 
 /* ============ UI wiring ============ */
@@ -1353,7 +1643,7 @@ function setType(t) {
 }
 function updFlux() {
   const m = $('fluxMode').value;
-  const map = { psi: ['<b>ψf</b>永磁磁链 (峰值)', 'Wb'], ke: ['<b>Ke</b>反电势常数', 'Vrms/krpm'], kt: ['<b>Kt</b>转矩常数', 'N·m/A'] };
+  const map = { psia: ['<b>ψa</b>等功率磁链', 'Wb'], psi: ['<b>ψf</b>永磁磁链 (峰值)', 'Wb'], ke: ['<b>Ke</b>反电势常数', 'Vrms/krpm'], kt: ['<b>Kt</b>转矩常数', 'N·m/A'] };
   $('fluxLbl').innerHTML = map[m][0]; $('fluxUnit').textContent = map[m][1];
 }
 function updPlaceholders() {
@@ -1374,6 +1664,7 @@ function copyText(txt, el) {
 }
 
 function init() {
+  buildHW(); FIELDS.push(...HW_IDS);
   captureDefaults();
   load();
   setType($('motorType').value); updFlux(); syncSliders(); updPlaceholders();
@@ -1382,7 +1673,7 @@ function init() {
   $('fluxMode').addEventListener('change', () => {
     // keep the same machine: convert the stored ψf into the newly selected unit
     const psi = R ? R.P.psi : 0.09, m = $('fluxMode').value, p = Math.max(1, Math.round(parseFloat($('pp').value)));
-    const v = m === 'psi' ? psi : m === 'ke' ? psi * Math.sqrt(3) * p * 1000 * TAU / 60 / Math.SQRT2 : psi * 1.5 * p;
+    const v = m === 'psi' ? psi : m === 'psia' ? psi * Math.sqrt(1.5) : m === 'ke' ? psi * Math.sqrt(3) * p * 1000 * TAU / 60 / Math.SQRT2 : psi * 1.5 * p;
     $('fluxVal').value = +v.toPrecision(5); updFlux(); schedule();
   });
   FIELDS.forEach(id => { const e = $(id); if (e && e.type !== 'hidden') e.addEventListener('input', () => { syncSliders(); schedule(); }); });
@@ -1414,6 +1705,9 @@ function init() {
   compute();
 }
 init();
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { }); });
+}
 </script>
 </body>
 </html>

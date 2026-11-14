@@ -1,0 +1,16 @@
+{
+  "name": "PMSM 控制参数整定",
+  "short_name": "PMSM整定",
+  "description": "永磁同步电机电流环、速度环、位置环、观测器参数整定与硬件采样换算",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eef1f3",
+  "theme_color": "#0a6b8f",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
