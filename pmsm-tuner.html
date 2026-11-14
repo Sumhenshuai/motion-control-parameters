@@ -1,0 +1,1419 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PMSM 控制参数整定</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
+  svg: { fontCache: 'global' },
+  startup: { typeset: false }
+};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
+<style>
+/* Layout: instrument-panel workbench — parameter rack on the left, scope-style result panes on the right */
+:root{
+  --bg:#eef1f3; --panel:#ffffff; --panel-2:#f6f8f9; --line:#d5dce1; --line-2:#e6ebee;
+  --ink:#16202a; --muted:#5b6873; --faint:#8a96a0;
+  --accent:#0a6b8f; --accent-ink:#ffffff; --accent-soft:#dcedf3;
+  --ch1:#1f6fd1; --ch2:#d9731a; --ch3:#7a4fc4; --ref:#8a96a0; --grid:#e3e8ec; --axis:#b7c1c8;
+  --ok:#1d8a52; --ok-soft:#dff3e8; --warn:#b07809; --warn-soft:#fbf0d6; --bad:#c43c33; --bad-soft:#f9e1df;
+  --code-bg:#f3f5f7;
+  --f-body:"IBM Plex Sans","PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+  --f-disp:"Space Grotesk","IBM Plex Sans","PingFang SC","Microsoft YaHei",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0f151a; --panel:#161e25; --panel-2:#1b252d; --line:#2a3741; --line-2:#222d36;
+  --ink:#e3e9ee; --muted:#9aa8b3; --faint:#6e7d89;
+  --accent:#4fb3d9; --accent-ink:#06202b; --accent-soft:#163745;
+  --ch1:#5aa2ff; --ch2:#f0a052; --ch3:#b393f0; --ref:#7d8b96; --grid:#222d36; --axis:#3a4853;
+  --ok:#4cc488; --ok-soft:#173a2a; --warn:#e2b54a; --warn-soft:#3a3016; --bad:#f07b72; --bad-soft:#3d1e1c;
+  --code-bg:#121a20; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0f151a; --panel:#161e25; --panel-2:#1b252d; --line:#2a3741; --line-2:#222d36;
+  --ink:#e3e9ee; --muted:#9aa8b3; --faint:#6e7d89;
+  --accent:#4fb3d9; --accent-ink:#06202b; --accent-soft:#163745;
+  --ch1:#5aa2ff; --ch2:#f0a052; --ch3:#b393f0; --ref:#7d8b96; --grid:#222d36; --axis:#3a4853;
+  --ok:#4cc488; --ok-soft:#173a2a; --warn:#e2b54a; --warn-soft:#3a3016; --bad:#f07b72; --bad-soft:#3d1e1c;
+  --code-bg:#121a20; color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--f-body);-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--panel)}
+h1,h2,h3,h4{font-family:var(--f-disp);font-weight:600;text-wrap:balance;margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--f-mono)}
+.num{font-variant-numeric:tabular-nums}
+
+/* top bar */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--panel);border-bottom:1px solid var(--line);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+.brand h1{font-size:18px;letter-spacing:.01em}
+.brand .sub{color:var(--muted);font-size:12.5px}
+.top .sp{flex:1}
+.btn{border:1px solid var(--line);background:var(--panel-2);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.small{padding:3px 9px;font-size:12px}
+
+/* page grid */
+.wrap{display:grid;grid-template-columns:minmax(300px,360px) minmax(0,1fr);gap:16px;align-items:start;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 40px;max-width:1500px;margin:0 auto}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:700px){.top{position:static}.brand .sub{display:none}}
+
+/* parameter rack */
+.rack{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.rack details{border-bottom:1px solid var(--line-2)}
+.rack details:last-child{border-bottom:0}
+.rack summary{cursor:pointer;list-style:none;padding:10px 14px;display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;letter-spacing:.02em}
+.rack summary::-webkit-details-marker{display:none}
+.rack summary::before{content:"";width:6px;height:6px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);transition:transform .15s}
+.rack details[open] summary::before{transform:rotate(45deg)}
+.rack summary .tag{margin-left:auto;font-weight:400;color:var(--faint);font-size:11.5px}
+.fields{display:grid;grid-template-columns:1fr;gap:8px;padding:0 14px 14px}
+.f{display:grid;grid-template-columns:minmax(0,1fr) 150px;align-items:center;gap:8px}
+.f label{font-size:12.5px;color:var(--muted);min-width:0}
+.f label b{color:var(--ink);font-weight:500;font-family:var(--f-mono);font-size:12px;margin-right:4px}
+.inp{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:5px;background:var(--panel-2);overflow:hidden}
+.inp:focus-within{border-color:var(--accent)}
+.inp input,.inp select{border:0;background:transparent;width:100%;min-width:0;padding:5px 7px;font-family:var(--f-mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+.inp select{font-family:var(--f-body);cursor:pointer}
+.inp .u{padding:5px 7px 5px 0;color:var(--faint);font-size:11px;white-space:nowrap;align-self:center}
+.inp input:disabled{color:var(--faint)}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--panel-2)}
+.seg button{border:0;background:transparent;padding:6px 8px;cursor:pointer;font-size:12.5px}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.hint{font-size:11.5px;color:var(--faint);line-height:1.45}
+
+/* derived strip */
+.main{display:flex;flex-direction:column;gap:14px;min-width:0}
+.derived{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.derived h2{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.04em;margin-bottom:8px}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 16px}
+.dv{min-width:0}
+.dv .k{font-size:11.5px;color:var(--faint)}
+.dv .v{font-family:var(--f-mono);font-size:13.5px;font-variant-numeric:tabular-nums}
+.dv .v small{color:var(--muted);font-size:11px;margin-left:3px}
+.notes{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.note{font-size:12.5px;padding:5px 9px;border-radius:5px;border-left:3px solid}
+.note.ok{background:var(--ok-soft);border-color:var(--ok)}
+.note.warn{background:var(--warn-soft);border-color:var(--warn)}
+.note.bad{background:var(--bad-soft);border-color:var(--bad)}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{border:0;background:transparent;padding:9px 14px;cursor:pointer;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.pane{display:flex;flex-direction:column;gap:14px;padding-top:2px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0}
+.card h3{font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card h3 .sub{font-family:var(--f-body);font-weight:400;font-size:12px;color:var(--faint)}
+
+/* tuning row */
+.tune{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px 18px}
+.knob{display:flex;flex-direction:column;gap:5px;min-width:0}
+.knob .row{display:flex;align-items:center;gap:8px}
+.knob label{font-size:12.5px;color:var(--muted)}
+.knob input[type=range]{flex:1;min-width:0;accent-color:var(--accent)}
+.knob .row .inp{width:120px;flex:none}
+
+/* gains table */
+.tblwrap{overflow-x:auto}
+table.g{border-collapse:collapse;width:100%;font-size:13px}
+table.g th{font-weight:500;color:var(--faint);font-size:11.5px;text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.g td{padding:5px 8px;border-bottom:1px solid var(--line-2);vertical-align:top}
+table.g td.v{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;font-size:13px}
+table.g td.u{color:var(--faint);font-size:12px;white-space:nowrap}
+table.g td.s{font-family:var(--f-mono);font-size:12.5px;white-space:nowrap}
+table.g tr.sec td{background:var(--panel-2);font-weight:600;font-size:12px;color:var(--muted);letter-spacing:.03em}
+table.g td .cp{opacity:0;margin-left:6px;cursor:pointer;border:0;background:none;color:var(--accent);font-size:11px;padding:0}
+table.g tr:hover td .cp{opacity:1}
+
+.metrics{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.m{border:1px solid var(--line);border-radius:6px;padding:5px 10px;display:flex;flex-direction:column;min-width:96px;background:var(--panel-2)}
+.m .k{font-size:11px;color:var(--faint)}
+.m .v{font-family:var(--f-mono);font-size:14px;font-variant-numeric:tabular-nums}
+.m.ok{border-color:var(--ok);background:var(--ok-soft)}
+.m.warn{border-color:var(--warn);background:var(--warn-soft)}
+.m.bad{border-color:var(--bad);background:var(--bad-soft)}
+
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.chart{min-width:0}
+.chart .ct{font-size:12.5px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:4px}
+.chart .ct b{color:var(--ink);font-weight:600}
+.lg{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted)}
+.lg i{width:14px;height:0;border-top:2px solid;display:inline-block}
+.lg i.d{border-top-style:dashed}
+.plot svg{display:block;width:100%;height:auto}
+.plot text{font-family:var(--f-mono);font-size:10.5px;fill:var(--muted)}
+
+.two{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px}
+@media (max-width:1150px){.two{grid-template-columns:minmax(0,1fr)}}
+
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:12px;overflow:auto;font:12px/1.55 var(--f-mono);margin:0;max-height:520px;white-space:pre}
+.codebar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.codebar .sp{flex:1}
+.toast{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:7px 14px;border-radius:6px;font-size:13px;z-index:60}
+
+/* help overlay */
+.help{position:fixed;inset:0;z-index:50;background:var(--bg);display:grid;grid-template-rows:auto minmax(0,1fr)}
+.help .hbar{background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;
+  padding-top:calc(10px + env(safe-area-inset-top,0px));padding-bottom:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.help .hbar h2{font-size:16px}
+.help .hbody{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:0}
+.help nav{border-right:1px solid var(--line);overflow:auto;padding:14px 10px;background:var(--panel)}
+.help nav a{display:block;padding:6px 10px;border-radius:5px;color:var(--muted);text-decoration:none;font-size:13px}
+.help nav a:hover{background:var(--panel-2);color:var(--ink)}
+.help article{overflow:auto;padding-block:20px 60px;padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px))}
+.help article section{max-width:860px;margin:0 auto 34px}
+.help article h3{font-size:19px;margin-bottom:10px;padding-top:6px}
+.help article h4{font-size:14.5px;margin:18px 0 6px}
+.help article p,.help article li{line-height:1.7;color:var(--ink)}
+.help article p{margin:8px 0}
+.help .eq{overflow-x:auto;padding:2px 0}
+.help .box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:10px 0}
+.help table{border-collapse:collapse;font-size:13px;width:100%}
+.help table th,.help table td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+.help table th{color:var(--muted);font-weight:500}
+.diagram{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px}
+.diagram svg{display:block;min-width:720px;width:100%;height:auto}
+.diagram text{font-family:var(--f-body);font-size:12px;fill:var(--ink)}
+.diagram .lbl{font-family:var(--f-mono);font-size:11px;fill:var(--muted)}
+@media (max-width:760px){.help .hbody{grid-template-columns:minmax(0,1fr)} .help nav{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <h1>PMSM 控制参数整定</h1>
+    <span class="sub">电流环 · 速度环 · 位置环 · 观测器 — 按离散采样系统 (z 域) 设计与校核</span>
+  </div>
+  <div class="sp"></div>
+  <button class="btn" id="btnReset" type="button">恢复示例参数</button>
+  <button class="btn primary" id="btnHelp" type="button">帮助 / 公式</button>
+</header>
+
+<div class="wrap">
+  <!-- ================= parameter rack ================= -->
+  <aside class="rack" id="rack">
+    <details open>
+      <summary>电机类型</summary>
+      <div class="fields">
+        <div class="seg" role="group" aria-label="电机类型">
+          <button type="button" data-type="spm" aria-pressed="false">表贴式 SPMSM (Ld=Lq)</button>
+          <button type="button" data-type="ipm" aria-pressed="true">内置式 IPMSM (Ld≠Lq)</button>
+        </div>
+        <input type="hidden" id="motorType" value="ipm">
+      </div>
+    </details>
+
+    <details open>
+      <summary>电气参数<span class="tag">相值 · 等幅值变换</span></summary>
+      <div class="fields">
+        <div class="f"><label for="Rs"><b>Rs</b>定子相电阻</label><div class="inp"><input id="Rs" type="number" step="any" value="0.25"><span class="u">Ω</span></div></div>
+        <div class="f"><label for="Ld"><b>Ld</b>d 轴电感</label><div class="inp"><input id="Ld" type="number" step="any" value="2.2"><span class="u">mH</span></div></div>
+        <div class="f"><label for="Lq"><b>Lq</b>q 轴电感</label><div class="inp"><input id="Lq" type="number" step="any" value="4.5"><span class="u">mH</span></div></div>
+        <div class="f"><label for="pp"><b>p</b>极对数</label><div class="inp"><input id="pp" type="number" step="1" min="1" value="4"><span class="u">对</span></div></div>
+        <div class="f"><label for="fluxMode">磁链输入方式</label><div class="inp"><select id="fluxMode">
+          <option value="psi">永磁磁链 ψf</option>
+          <option value="ke">反电动势常数 Ke</option>
+          <option value="kt">转矩常数 Kt</option>
+        </select></div></div>
+        <div class="f"><label for="fluxVal" id="fluxLbl"><b>ψf</b>永磁磁链 (峰值)</label><div class="inp"><input id="fluxVal" type="number" step="any" value="0.09"><span class="u" id="fluxUnit">Wb</span></div></div>
+        <div class="hint" id="fluxHint">Ke 按线电压有效值 / 1000 rpm；Kt 按相电流峰值。</div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>机械参数</summary>
+      <div class="fields">
+        <div class="f"><label for="Jm"><b>Jm</b>电机转动惯量</label><div class="inp"><input id="Jm" type="number" step="any" value="6"><span class="u">kg·cm²</span></div></div>
+        <div class="f"><label for="JL"><b>JL</b>负载惯量 (折算)</label><div class="inp"><input id="JL" type="number" step="any" value="12"><span class="u">kg·cm²</span></div></div>
+        <div class="f"><label for="Bv"><b>B</b>粘滞摩擦系数</label><div class="inp"><input id="Bv" type="number" step="any" value="0.0001"><span class="u">N·m·s/rad</span></div></div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>额定与限幅</summary>
+      <div class="fields">
+        <div class="f"><label for="Irated"><b>IN</b>额定相电流 (峰值)</label><div class="inp"><input id="Irated" type="number" step="any" value="8"><span class="u">A</span></div></div>
+        <div class="f"><label for="Imax"><b>Imax</b>最大相电流 (峰值)</label><div class="inp"><input id="Imax" type="number" step="any" value="16"><span class="u">A</span></div></div>
+        <div class="f"><label for="nRated"><b>nN</b>额定转速</label><div class="inp"><input id="nRated" type="number" step="any" value="3000"><span class="u">rpm</span></div></div>
+        <div class="f"><label for="nMax"><b>nmax</b>最高转速</label><div class="inp"><input id="nMax" type="number" step="any" value="4500"><span class="u">rpm</span></div></div>
+        <div class="f"><label for="Vdc"><b>Udc</b>直流母线电压</label><div class="inp"><input id="Vdc" type="number" step="any" value="310"><span class="u">V</span></div></div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>控制器与采样<span class="tag">离散化设置</span></summary>
+      <div class="fields">
+        <div class="f"><label for="fsw"><b>fpwm</b>开关 / 载波频率</label><div class="inp"><input id="fsw" type="number" step="any" value="10000"><span class="u">Hz</span></div></div>
+        <div class="f"><label for="upd">采样 / 更新方式</label><div class="inp"><select id="upd">
+          <option value="single">单采单更 Ts=Tpwm</option>
+          <option value="double">双采双更 Ts=Tpwm/2</option>
+        </select></div></div>
+        <div class="f"><label for="nd"><b>Nd</b>计算延时</label><div class="inp"><select id="nd">
+          <option value="1">1 拍 (下周期生效)</option>
+          <option value="0">0 拍 (立即更新)</option>
+          <option value="2">2 拍</option>
+        </select></div></div>
+        <div class="f"><label for="disc">PI 离散化方法</label><div class="inp"><select id="disc">
+          <option value="be">后向欧拉</option>
+          <option value="fe">前向欧拉</option>
+          <option value="tu">双线性 Tustin</option>
+        </select></div></div>
+        <div class="f"><label for="Nw"><b>Nω</b>速度环分频</label><div class="inp"><input id="Nw" type="number" step="1" min="1" value="10"><span class="u">× Ts</span></div></div>
+        <div class="f"><label for="ff"><b>fω,f</b>速度反馈滤波截止</label><div class="inp"><input id="ff" type="number" step="any" value="300"><span class="u">Hz</span></div></div>
+        <div class="f"><label for="Np"><b>Nθ</b>位置环分频</label><div class="inp"><input id="Np" type="number" step="1" min="1" value="10"><span class="u">× Ts</span></div></div>
+        <div class="f"><label for="enc"><b>Nenc</b>编码器分辨率</label><div class="inp"><input id="enc" type="number" step="1" value="131072"><span class="u">cnt/rev</span></div></div>
+        <div class="hint">速度由位置差分 Δθ/Tω 计算，经一阶 IIR 滤波；滤波截止填 0 表示不滤波。</div>
+      </div>
+    </details>
+
+    <details>
+      <summary>标幺基值<span class="tag">留空 = 自动</span></summary>
+      <div class="fields">
+        <div class="f"><label for="Vb"><b>Ub</b>电压基值</label><div class="inp"><input id="Vb" type="number" step="any" placeholder=""><span class="u">V</span></div></div>
+        <div class="f"><label for="Ib"><b>Ib</b>电流基值</label><div class="inp"><input id="Ib" type="number" step="any" placeholder=""><span class="u">A</span></div></div>
+        <div class="f"><label for="nb"><b>nb</b>转速基值</label><div class="inp"><input id="nb" type="number" step="any" placeholder=""><span class="u">rpm</span></div></div>
+        <div class="hint">自动：Ub = Udc/√3，Ib = Imax，nb = nmax。位置标幺按 1.0 = 1 机械圈。</div>
+      </div>
+    </details>
+  </aside>
+
+  <!-- ================= results ================= -->
+  <main class="main">
+    <section class="derived" aria-label="派生参数">
+      <h2>派生参数与可行性检查</h2>
+      <div class="dgrid" id="derived"></div>
+      <div class="notes" id="notes"></div>
+    </section>
+
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="cur">电流环</button>
+      <button role="tab" aria-selected="false" data-tab="spd">速度环</button>
+      <button role="tab" aria-selected="false" data-tab="pos">位置环</button>
+      <button role="tab" aria-selected="false" data-tab="obs">观测器</button>
+      <button role="tab" aria-selected="false" data-tab="exp">代码导出</button>
+    </div>
+
+    <!-- current loop -->
+    <div class="pane" data-pane="cur">
+      <div class="card">
+        <h3>电流环整定 <span class="sub">PI + 解耦前馈，采样周期 Ts</span></h3>
+        <div class="tune">
+          <div class="knob"><label for="fcc">期望电流环带宽 fcc</label>
+            <div class="row"><input type="range" id="fcc_r" min="1" max="4" step="0.005"><div class="inp"><input id="fcc" type="number" step="any" value="600"><span class="u">Hz</span></div></div></div>
+          <div class="knob"><label for="curMethod">设计方法</label>
+            <div class="inp"><select id="curMethod">
+              <option value="imc">连续域零极点对消 (IMC) → 离散化</option>
+              <option value="zd">z 域直接零极点对消</option>
+            </select></div>
+            <span class="hint" id="curMethodHint"></span></div>
+          <div class="knob"><label for="curStep">阶跃仿真幅值</label>
+            <div class="row"><div class="inp" style="width:100%"><input id="curStep" type="number" step="any" value="4"><span class="u">A</span></div></div></div>
+        </div>
+      </div>
+      <div class="two">
+        <div class="card"><h3>控制参数</h3><div class="tblwrap"><table class="g" id="curTbl"></table></div></div>
+        <div class="card"><h3>离散闭环校核 <span class="sub">z 平面极点 · 裕度</span></h3><div class="metrics" id="curMet"></div><div class="plot" id="curZ"></div></div>
+      </div>
+      <div class="card"><div class="charts">
+        <div class="chart"><div class="ct"><b>开环 Bode (z = e^{jωTs})</b><span class="lg"><i style="border-color:var(--ch1)"></i>d 轴</span><span class="lg"><i style="border-color:var(--ch2)"></i>q 轴</span><span class="lg"><i class="d" style="border-color:var(--ref)"></i>Nyquist fs/2</span></div><div class="plot" id="curBode"></div></div>
+        <div class="chart"><div class="ct"><b>阶跃响应 (采样控制器 + 连续对象)</b><span class="lg"><i style="border-color:var(--ch1)"></i>id</span><span class="lg"><i style="border-color:var(--ch2)"></i>iq</span><span class="lg"><i class="d" style="border-color:var(--ref)"></i>指令</span></div><div class="plot" id="curStepP"></div></div>
+      </div></div>
+    </div>
+
+    <!-- speed loop -->
+    <div class="pane" data-pane="spd" hidden>
+      <div class="card">
+        <h3>速度环整定 <span class="sub">PI，采样周期 Tω = Nω·Ts，输出 iq*</span></h3>
+        <div class="tune">
+          <div class="knob"><label for="spdMethod">设计方法</label>
+            <div class="inp"><select id="spdMethod">
+              <option value="bw">带宽法 (Kp = Jωsc/Kt, 零点 ωsc/N)</option>
+              <option value="so">对称最优 (a 参数)</option>
+            </select></div></div>
+          <div class="knob" id="kFsc"><label for="fsc">期望速度环带宽 fsc</label>
+            <div class="row"><input type="range" id="fsc_r" min="0" max="3" step="0.005"><div class="inp"><input id="fsc" type="number" step="any" value="60"><span class="u">Hz</span></div></div></div>
+          <div class="knob" id="kN"><label for="Nz">PI 零点系数 N (零点 = ωsc/N)</label>
+            <div class="row"><input type="range" id="Nz_r" min="2" max="10" step="0.1"><div class="inp"><input id="Nz" type="number" step="any" value="4"><span class="u">—</span></div></div></div>
+          <div class="knob" id="kA" hidden><label for="aSO">对称最优 a</label>
+            <div class="row"><input type="range" id="aSO_r" min="1.5" max="5" step="0.05"><div class="inp"><input id="aSO" type="number" step="any" value="2.4"><span class="u">—</span></div></div></div>
+          <div class="knob" id="kKt"><label for="ktMode">转矩常数取值 (IPMSM)</label>
+            <div class="inp"><select id="ktMode">
+              <option value="id0">id = 0 控制：Kt = 1.5pψf</option>
+              <option value="mtpa">MTPA @ 额定电流：Kt,eff = Te/Is</option>
+            </select></div></div>
+          <div class="knob"><label for="spdStep">仿真：速度阶跃 / 负载阶跃</label>
+            <div class="row"><div class="inp"><input id="spdStep" type="number" step="any" value="100"><span class="u">rpm</span></div><div class="inp"><input id="loadPct" type="number" step="any" value="50"><span class="u">% TN</span></div></div></div>
+        </div>
+      </div>
+      <div class="two">
+        <div class="card"><h3>控制参数</h3><div class="tblwrap"><table class="g" id="spdTbl"></table></div></div>
+        <div class="card"><h3>多速率离散校核 <span class="sub">内环按 Ts、外环按 Tω</span></h3><div class="metrics" id="spdMet"></div><div class="hint" id="spdNote"></div></div>
+      </div>
+      <div class="card"><div class="charts">
+        <div class="chart"><div class="ct"><b>速度开环 Bode</b><span class="lg"><i style="border-color:var(--ch1)"></i>L(jω)</span><span class="lg"><i style="border-color:var(--ch3)"></i>闭环 ω/ω*</span></div><div class="plot" id="spdBode"></div></div>
+        <div class="chart"><div class="ct"><b>速度阶跃 + 负载扰动</b><span class="lg"><i style="border-color:var(--ch1)"></i>n (rpm)</span><span class="lg"><i style="border-color:var(--ch2)"></i>iq (A, 右轴比例)</span><span class="lg"><i class="d" style="border-color:var(--ref)"></i>指令</span></div><div class="plot" id="spdStepP"></div></div>
+      </div></div>
+    </div>
+
+    <!-- position loop -->
+    <div class="pane" data-pane="pos" hidden>
+      <div class="card">
+        <h3>位置环整定 <span class="sub">P + 速度/加速度前馈，采样周期 Tθ = Nθ·Ts</span></h3>
+        <div class="tune">
+          <div class="knob"><label for="fpc">期望位置环带宽 fpc</label>
+            <div class="row"><input type="range" id="fpc_r" min="-0.5" max="2.5" step="0.005"><div class="inp"><input id="fpc" type="number" step="any" value="12"><span class="u">Hz</span></div></div></div>
+          <div class="knob"><label for="vff">速度前馈系数 Kvff</label>
+            <div class="row"><input type="range" id="vff_r" min="0" max="100" step="1"><div class="inp"><input id="vff" type="number" step="any" value="0"><span class="u">%</span></div></div></div>
+          <div class="knob"><label for="posStep">阶跃仿真幅值</label>
+            <div class="row"><div class="inp" style="width:100%"><input id="posStep" type="number" step="any" value="30"><span class="u">° 机械</span></div></div></div>
+        </div>
+      </div>
+      <div class="two">
+        <div class="card"><h3>控制参数</h3><div class="tblwrap"><table class="g" id="posTbl"></table></div></div>
+        <div class="card"><h3>校核</h3><div class="metrics" id="posMet"></div><div class="hint">位置环开环含整个速度闭环（含速度环、电流环的离散延时）。</div></div>
+      </div>
+      <div class="card"><div class="charts">
+        <div class="chart"><div class="ct"><b>位置开环 Bode</b><span class="lg"><i style="border-color:var(--ch1)"></i>L(jω)</span><span class="lg"><i style="border-color:var(--ch3)"></i>闭环 θ/θ*</span></div><div class="plot" id="posBode"></div></div>
+        <div class="chart"><div class="ct"><b>位置阶跃响应</b><span class="lg"><i style="border-color:var(--ch1)"></i>θ (°)</span><span class="lg"><i class="d" style="border-color:var(--ref)"></i>指令</span></div><div class="plot" id="posStepP"></div></div>
+      </div></div>
+    </div>
+
+    <!-- observers -->
+    <div class="pane" data-pane="obs" hidden>
+      <div class="card">
+        <h3>观测器整定 <span class="sub">均按前向欧拉离散实现并校核离散极点</span></h3>
+        <div class="tune">
+          <div class="knob"><label for="fpll">PLL 自然频率 fn</label>
+            <div class="row"><div class="inp"><input id="fpll" type="number" step="any" value="100"><span class="u">Hz</span></div><div class="inp"><input id="zpll" type="number" step="any" value="0.707"><span class="u">ζ</span></div></div></div>
+          <div class="knob"><label for="femf">反电势观测器带宽 fo</label>
+            <div class="row"><div class="inp"><input id="femf" type="number" step="any" value="1000"><span class="u">Hz</span></div><div class="inp"><input id="zemf" type="number" step="any" value="0.707"><span class="u">ζ</span></div></div></div>
+          <div class="knob"><label for="smoEta">滑模观测器 安全系数 η / LPF 截止</label>
+            <div class="row"><div class="inp"><input id="smoEta" type="number" step="any" value="1.5"><span class="u">η</span></div><div class="inp"><input id="smoLpf" type="number" step="any" value="1000"><span class="u">Hz</span></div></div></div>
+          <div class="knob"><label for="flo">负载转矩观测器带宽 fo</label>
+            <div class="row"><div class="inp"><input id="flo" type="number" step="any" value="50"><span class="u">Hz</span></div><div class="inp"><input id="zlo" type="number" step="any" value="0.707"><span class="u">ζ</span></div></div></div>
+        </div>
+      </div>
+      <div class="two">
+        <div class="card"><h3>观测器参数</h3><div class="tblwrap"><table class="g" id="obsTbl"></table></div></div>
+        <div class="card"><h3>离散极点 <span class="sub">前向欧拉实现</span></h3><div class="metrics" id="obsMet"></div><div class="plot" id="obsZ"></div></div>
+      </div>
+    </div>
+
+    <!-- export -->
+    <div class="pane" data-pane="exp" hidden>
+      <div class="card">
+        <div class="codebar">
+          <div class="seg" role="group" aria-label="导出格式" id="expSeg">
+            <button type="button" data-fmt="c" aria-pressed="true">C 头文件</button>
+            <button type="button" data-fmt="m" aria-pressed="false">MATLAB / Simulink</button>
+            <button type="button" data-fmt="json" aria-pressed="false">JSON</button>
+          </div>
+          <div class="sp"></div>
+          <button class="btn" id="btnCopy" type="button">复制代码</button>
+        </div>
+        <pre class="code" id="code" tabindex="0"></pre>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ================= HELP ================= -->
+<div class="help" id="help" hidden role="dialog" aria-modal="true" aria-label="帮助">
+  <div class="hbar"><h2>控制原理与公式</h2><span class="hint">公式由 MathJax 渲染，离线时显示 TeX 源码</span><div style="flex:1"></div><button class="btn" id="btnHelpClose" type="button">关闭</button></div>
+  <div class="hbody">
+    <nav>
+      <a href="#h-arch">1. 控制结构总览</a>
+      <a href="#h-model">2. PMSM 数学模型</a>
+      <a href="#h-disc">3. 离散化基础</a>
+      <a href="#h-cur">4. 电流环</a>
+      <a href="#h-spd">5. 速度环</a>
+      <a href="#h-pos">6. 位置环</a>
+      <a href="#h-obs">7. 观测器</a>
+      <a href="#h-pu">8. 标幺化</a>
+      <a href="#h-tips">9. 调试建议</a>
+    </nav>
+    <article id="helpBody">
+      <section id="h-arch">
+        <h3>1. 控制结构总览</h3>
+        <p>三环级联矢量控制 (FOC)：位置环 → 速度环 → 电流环，由内到外带宽依次降低。内环在每个 PWM 中断执行一次（周期 \(T_s\)），速度环每 \(N_\omega\) 个中断执行一次，位置环每 \(N_\theta\) 个中断执行一次。</p>
+        <div class="diagram">
+          <svg viewBox="0 0 980 250" role="img" aria-label="三环级联控制框图">
+            <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+            <g fill="none" stroke="var(--muted)" stroke-width="1.4">
+              <circle cx="60" cy="80" r="11"/><circle cx="250" cy="80" r="11"/><circle cx="450" cy="80" r="11"/>
+              <rect x="90" y="58" width="120" height="44" rx="5" stroke="var(--accent)"/>
+              <rect x="280" y="58" width="130" height="44" rx="5" stroke="var(--accent)"/>
+              <rect x="480" y="58" width="130" height="44" rx="5" stroke="var(--accent)"/>
+              <rect x="645" y="58" width="130" height="44" rx="5"/>
+              <rect x="810" y="58" width="120" height="44" rx="5"/>
+              <rect x="645" y="160" width="130" height="40" rx="5"/>
+              <rect x="810" y="160" width="120" height="40" rx="5"/>
+              <path d="M10,80 H49" marker-end="url(#ar)"/><path d="M71,80 H90" marker-end="url(#ar)"/>
+              <path d="M210,80 H239" marker-end="url(#ar)"/><path d="M261,80 H280" marker-end="url(#ar)"/>
+              <path d="M410,80 H439" marker-end="url(#ar)"/><path d="M461,80 H480" marker-end="url(#ar)"/>
+              <path d="M610,80 H645" marker-end="url(#ar)"/><path d="M775,80 H810" marker-end="url(#ar)"/>
+              <path d="M870,102 V160" marker-end="url(#ar)"/>
+              <path d="M810,180 H775" marker-end="url(#ar)"/>
+              <path d="M645,180 H450 V91" marker-end="url(#ar)"/>
+              <path d="M870,200 V232 H250 V91" marker-end="url(#ar)"/>
+              <path d="M930,180 H955 V242 H60 V91" marker-end="url(#ar)"/>
+            </g>
+            <text x="150" y="85" text-anchor="middle">位置 P (+前馈)</text>
+            <text x="345" y="85" text-anchor="middle">速度 PI</text>
+            <text x="545" y="85" text-anchor="middle">dq 电流 PI</text>
+            <text x="710" y="78" text-anchor="middle">逆Park +</text><text x="710" y="94" text-anchor="middle">SVPWM/逆变器</text>
+            <text x="870" y="85" text-anchor="middle">PMSM + 负载</text>
+            <text x="710" y="185" text-anchor="middle">Clarke/Park</text>
+            <text x="870" y="185" text-anchor="middle">编码器/观测器</text>
+            <text class="lbl" x="18" y="72">θ*</text><text class="lbl" x="218" y="72">ω*</text><text class="lbl" x="414" y="72">iq*, id*</text><text class="lbl" x="616" y="72">ud, uq</text><text class="lbl" x="780" y="72">ua,b,c</text>
+            <text class="lbl" x="520" y="174">id, iq</text><text class="lbl" x="300" y="226">ω (Δθ/Tω + 滤波)</text><text class="lbl" x="120" y="236">θ</text>
+            <text class="lbl" x="100" y="40">Tθ = Nθ·Ts</text><text class="lbl" x="295" y="40">Tω = Nω·Ts</text><text class="lbl" x="495" y="40">Ts (PWM 中断)</text>
+          </svg>
+        </div>
+      </section>
+
+      <section id="h-model">
+        <h3>2. PMSM 数学模型 (dq 同步旋转坐标系)</h3>
+        <p>采用等幅值 Clarke/Park 变换（dq 电流幅值 = 相电流峰值），\(\omega_e = p\,\omega_m\)。</p>
+        <div class="eq">\[ u_d = R_s i_d + L_d\frac{di_d}{dt} - \omega_e L_q i_q \]</div>
+        <div class="eq">\[ u_q = R_s i_q + L_q\frac{di_q}{dt} + \omega_e\left(L_d i_d + \psi_f\right) \]</div>
+        <div class="eq">\[ T_e = \tfrac32\,p\left[\psi_f i_q + (L_d - L_q)\, i_d i_q\right], \qquad J\frac{d\omega_m}{dt} = T_e - T_L - B\omega_m \]</div>
+        <p>SPMSM：\(L_d = L_q\)，磁阻转矩为零，\(K_t = \tfrac32 p\psi_f\)。IPMSM：通常 \(L_q > L_d\)，采用 MTPA 时</p>
+        <div class="eq">\[ i_d^{MTPA} = \frac{\psi_f - \sqrt{\psi_f^2 + 8(L_q-L_d)^2 I_s^2}}{4(L_q-L_d)},\qquad i_q = \sqrt{I_s^2 - i_d^2} \]</div>
+        <p>参数换算（本工具使用）：</p>
+        <div class="eq">\[ \psi_f = \frac{\sqrt2\,K_{e}}{\sqrt3\,p\cdot \frac{2\pi\cdot 1000}{60}}\quad(K_e:\ \mathrm{V_{rms,LL}/krpm}),\qquad \psi_f = \frac{K_t}{1.5\,p}\quad(K_t:\ \mathrm{N\!\cdot\! m/A_{pk}}) \]</div>
+        <p>机电时间常数 \(\tau_m = \dfrac{J R_s}{1.5\,p^2\psi_f^2}\)，电气时间常数 \(\tau_{d,q} = L_{d,q}/R_s\)。</p>
+      </section>
+
+      <section id="h-disc">
+        <h3>3. 离散化基础 — 程序里实际运行的是什么</h3>
+        <p>数字控制器在采样时刻 \(kT_s\) 采样电流，计算后输出电压，经 PWM 保持一个周期（零阶保持 ZOH）。若本周期计算结果在下一周期才装载到比较寄存器，就有 \(N_d = 1\) 拍计算延时。</p>
+        <h4>3.1 对象的 ZOH 等效离散模型</h4>
+        <div class="eq">\[ G(s) = \frac{1}{Ls+R}\ \xrightarrow{\ \mathrm{ZOH}\ }\ G(z) = \frac{b\,z^{-1}}{1 - a z^{-1}},\qquad a = e^{-RT_s/L},\quad b = \frac{1-a}{R} \]</div>
+        <p>加上 \(N_d\) 拍计算延时：\(G_{tot}(z) = z^{-N_d}\,G(z)\)。等效到连续域，ZOH 贡献约 \(0.5T_s\) 延时，计算延时贡献 \(N_dT_s\)，合计 \(T_d \approx (N_d+0.5)T_s\)（单采单更典型值 \(1.5T_s\)）。</p>
+        <h4>3.2 PI 的三种离散化与差分方程</h4>
+        <p>连续 PI：\(C(s) = K_p + K_i/s\)。统一写成增量形式 \(u[k] = u[k-1] + b_0 e[k] + b_1 e[k-1]\)，即 \(C(z) = \dfrac{b_0 + b_1 z^{-1}}{1 - z^{-1}}\)：</p>
+        <table>
+          <tr><th>方法</th><th>\(s\) 替换</th><th>位置式代码</th><th>\(b_0\)</th><th>\(b_1\)</th></tr>
+          <tr><td>前向欧拉</td><td>\(s = \frac{z-1}{T_s}\)</td><td><span class="mono">u = Kp·e + I; I += Ki·Ts·e;</span></td><td>\(K_p\)</td><td>\(-K_p + K_iT_s\)</td></tr>
+          <tr><td>后向欧拉</td><td>\(s = \frac{z-1}{zT_s}\)</td><td><span class="mono">I += Ki·Ts·e; u = Kp·e + I;</span></td><td>\(K_p + K_iT_s\)</td><td>\(-K_p\)</td></tr>
+          <tr><td>双线性</td><td>\(s = \frac{2}{T_s}\frac{z-1}{z+1}\)</td><td><span class="mono">I += Ki·Ts/2·(e+e₋₁); u = Kp·e + I;</span></td><td>\(K_p + \frac{K_iT_s}{2}\)</td><td>\(-K_p + \frac{K_iT_s}{2}\)</td></tr>
+        </table>
+        <p>TI 等库常用串联形式 \(u = K_p\left(e + K_i'\sum e\right)\)，其中 \(K_i' = T_s/T_i = K_iT_s/K_p\)，工具中一并给出。</p>
+        <h4>3.3 离散校核方法</h4>
+        <p>频率响应在单位圆上计算：\(L(e^{j\omega T_s})\)，\(0 < \omega < \pi/T_s\)，由此得到相位裕度、幅值裕度和闭环带宽。稳定性看闭环特征方程 \(1 + L(z) = 0\) 的根是否全部满足 \(|z| < 1\)。阶跃响应采用"采样控制器 + 精确离散化的连续对象 + ZOH + 计算延时"仿真，与程序实际运行一致。</p>
+        <p>速度环、位置环是多速率系统：内环以 \(T_s\) 运行，外环以 \(T_\omega\)、\(T_\theta\) 运行。频域校核把内环闭环 \(T_c(e^{j\omega T_s})\) 当作外环对象的一部分，外环部分加入 ZOH \(\frac{1-e^{-j\omega T}}{j\omega T}\)、差分测速平均效应以及离散滤波器；时域仿真则严格按多速率逐拍执行。</p>
+      </section>
+
+      <section id="h-cur">
+        <h3>4. 电流环</h3>
+        <div class="diagram">
+          <svg viewBox="0 0 900 150" role="img" aria-label="电流环离散框图">
+            <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+            <g fill="none" stroke="var(--muted)" stroke-width="1.4">
+              <circle cx="60" cy="60" r="11"/>
+              <rect x="95" y="38" width="150" height="44" rx="5" stroke="var(--accent)"/>
+              <circle cx="285" cy="60" r="11"/>
+              <rect x="320" y="38" width="110" height="44" rx="5"/>
+              <rect x="465" y="38" width="100" height="44" rx="5"/>
+              <rect x="600" y="38" width="130" height="44" rx="5"/>
+              <path d="M10,60 H49" marker-end="url(#ar2)"/><path d="M71,60 H95" marker-end="url(#ar2)"/>
+              <path d="M245,60 H274" marker-end="url(#ar2)"/><path d="M296,60 H320" marker-end="url(#ar2)"/>
+              <path d="M430,60 H465" marker-end="url(#ar2)"/><path d="M565,60 H600" marker-end="url(#ar2)"/>
+              <path d="M730,60 H880"/><path d="M800,60 V125 H60 V71" marker-end="url(#ar2)"/>
+              <path d="M285,15 V49" marker-end="url(#ar2)"/>
+            </g>
+            <text x="170" y="65" text-anchor="middle">PI: (b₀+b₁z⁻¹)/(1−z⁻¹)</text>
+            <text x="375" y="65" text-anchor="middle">z^(−Nd) 延时</text>
+            <text x="515" y="65" text-anchor="middle">ZOH/PWM</text>
+            <text x="665" y="65" text-anchor="middle">1/(Ls+R)</text>
+            <text class="lbl" x="12" y="52">i*</text><text class="lbl" x="295" y="22">前馈解耦 u_ff</text><text class="lbl" x="840" y="52">i</text><text class="lbl" x="420" y="140">采样 i[k]</text>
+          </svg>
+        </div>
+        <h4>4.1 解耦前馈</h4>
+        <div class="eq">\[ u_d^{ff} = -\omega_e L_q i_q,\qquad u_q^{ff} = \omega_e\left(L_d i_d + \psi_f\right) \]</div>
+        <p>前馈后 d、q 轴均近似为 \(1/(L s + R_s)\) 一阶对象。</p>
+        <h4>4.2 连续域零极点对消 (IMC)</h4>
+        <div class="eq">\[ C(s) = K_p\frac{s + K_i/K_p}{s},\quad \frac{K_i}{K_p} = \frac{R_s}{L}\ \Rightarrow\ C(s)G(s) = \frac{K_p}{Ls} \]</div>
+        <div class="eq">\[ K_{pd} = \omega_{cc}L_d,\ \ K_{id} = \omega_{cc}R_s;\qquad K_{pq} = \omega_{cc}L_q,\ \ K_{iq} = \omega_{cc}R_s \]</div>
+        <p>理想闭环为 \(\omega_{cc}/(s+\omega_{cc})\)。考虑延时 \(T_d \approx (N_d + 0.5)T_s\) 后相位裕度近似 \(\mathrm{PM} \approx 90^\circ - \omega_{cc}T_d\cdot\frac{180^\circ}{\pi}\)。PM = 45° 对应 \(f_{cc} = 1/(8T_d)\)，PM = 60° 对应 \(f_{cc} = 1/(12T_d)\)。</p>
+        <h4>4.3 z 域直接零极点对消</h4>
+        <p>让离散 PI 的零点精确落在对象极点 \(z = a\) 上：\(b_1 = -a\,b_0\)。开环变为</p>
+        <div class="eq">\[ L(z) = \frac{K}{z^{N_d}(z-1)},\qquad K = b\,b_0 \]</div>
+        <p>\(N_d = 1\) 时闭环特征方程 \(z^2 - z + K = 0\)：\(K < 1\) 稳定，\(K \le 0.25\) 为实极点（无超调）。工具取 \(K = 1 - e^{-\omega_{cc}T_s}\)，即 \(b_0 = K/b\)，\(b_1 = -a\,b_0\)。小 \(T_s\) 时它与 IMC 结果一致；带宽很高时它更准确，因为对消的是精确的离散极点。</p>
+        <h4>4.4 电压限幅与抗饱和</h4>
+        <p>SVPWM 线性区 \(\sqrt{u_d^2+u_q^2} \le U_{dc}/\sqrt3\)。增量式 PI 对输出直接限幅即可天然抗积分饱和；位置式需在饱和时停止积分（clamping）或反算 \(I \mathrel{+}= K_{aw}(u_{sat} - u)\)，常取 \(K_{aw} \approx 1/K_p\cdot K_i\)。</p>
+      </section>
+
+      <section id="h-spd">
+        <h3>5. 速度环</h3>
+        <p>把电流闭环近似为 \(1/(1 + s/\omega_{cc})\)，机械对象 \(\frac{K_t}{Js + B}\)，控制器输出 \(i_q^*\)。</p>
+        <h4>5.1 带宽法</h4>
+        <div class="eq">\[ K_{p\omega} = \frac{J\,\omega_{sc}}{K_t},\qquad K_{i\omega} = K_{p\omega}\,\frac{\omega_{sc}}{N} \]</div>
+        <p>忽略 \(B\) 与内环时开环 \(L(s) \approx \frac{\omega_{sc}}{s}\cdot\frac{s + \omega_{sc}/N}{s}\)，穿越频率约为 \(\omega_{sc}\)，PM ≈ \(\arctan N\) 减去内环、测速与采样延时带来的相位滞后。N 越大超调越小，但抗负载扰动恢复越慢。</p>
+        <h4>5.2 对称最优</h4>
+        <div class="eq">\[ T_\Sigma = \frac{1}{\omega_{cc}} + \frac{1}{\omega_f} + T_\omega,\qquad K_{p\omega} = \frac{J}{a K_t T_\Sigma},\qquad T_i = a^2T_\Sigma,\qquad K_{i\omega} = \frac{K_{p\omega}}{T_i} \]</div>
+        <p>穿越频率 \(\omega_c = 1/(aT_\Sigma)\)，相位裕度 \(\mathrm{PM} = \arcsin\frac{a^2-1}{a^2+1}\)。a = 2 时 PM ≈ 37°，a = 2.4 时约 44°，a = 3 时约 53°。</p>
+        <h4>5.3 离散实现要点</h4>
+        <p>差分测速 \(\omega[k] = (\theta[k] - \theta[k-1])/T_\omega\) 等效平均滤波（约 \(T_\omega/2\) 延时），一阶 IIR 滤波 \(y \mathrel{+}= \alpha(x - y)\)，\(\alpha = 1 - e^{-\omega_f T_\omega}\)。PI 离散用 \(K_{i\omega}T_\omega\)。输出 \(i_q^*\) 限幅于 \(I_{max}\)，并做积分抗饱和。</p>
+      </section>
+
+      <section id="h-pos">
+        <h3>6. 位置环</h3>
+        <div class="eq">\[ \omega^* = K_{pp}(\theta^* - \theta) + K_{vff}\,\dot\theta^*,\qquad i_q^{ff} = K_{aff}\,\ddot\theta^*,\quad K_{aff} = \frac{J}{K_t} \]</div>
+        <p>速度环视为 1 时，位置闭环 \(\frac{K_{pp}}{s + K_{pp}}\)，因此 \(K_{pp} = \omega_{pc} = 2\pi f_{pc}\)（单位 1/s）。匀速运动时跟随误差 \(e_\theta = (1-K_{vff})\,\omega/K_{pp}\)。一般取 \(f_{pc} \le f_{sc}/4\)，加速度前馈可显著减小加减速时的跟随误差。</p>
+      </section>
+
+      <section id="h-obs">
+        <h3>7. 观测器</h3>
+        <h4>7.1 锁相环 PLL（角度/速度提取）</h4>
+        <div class="eq">\[ \varepsilon = \sin(\theta - \hat\theta)\approx \theta - \hat\theta,\quad \hat\omega = \left(K_p + \frac{K_i}{s}\right)\varepsilon,\quad \hat\theta = \frac{\hat\omega}{s} \]</div>
+        <div class="eq">\[ \frac{\hat\theta}{\theta} = \frac{K_ps + K_i}{s^2 + K_ps + K_i}\ \Rightarrow\ K_p = 2\zeta\omega_n,\quad K_i = \omega_n^2 \]</div>
+        <p>若误差取未归一化的 \(\varepsilon = -\hat e_\alpha\cos\hat\theta - \hat e_\beta\sin\hat\theta\)，其幅值为 \(|E| = \omega_e\psi_f\)，增益需除以 \(|E|\)（或先对 \(\hat e\) 归一化）。离散：\(\hat\theta[k+1] = \hat\theta[k] + T_s\hat\omega[k]\)。</p>
+        <h4>7.2 PI 型反电势观测器 (扩展反电势, αβ 系)</h4>
+        <p>采用 \(L_q\) 模型：\(L_q\frac{di}{dt} = u - R_s i - e\)，IPMSM 的扩展反电势 \(e = [(L_d-L_q)(\omega_e i_d - \dot i_q) + \omega_e\psi_f]\,[-\sin\theta,\ \cos\theta]^T\)。</p>
+        <div class="eq">\[ L_q\frac{d\hat i}{dt} = u - R_s\hat i - \hat e,\qquad \hat e = \left(K_{po} + \frac{K_{io}}{s}\right)(\hat i - i) \]</div>
+        <div class="eq">\[ \frac{\hat e}{e} = \frac{K_{po}s + K_{io}}{L_qs^2 + (R_s + K_{po})s + K_{io}}\ \Rightarrow\ K_{po} = 2\zeta\omega_oL_q - R_s,\quad K_{io} = \omega_o^2L_q \]</div>
+        <p>αβ 系中反电势是频率为 \(\omega_e\) 的正弦量，观测器会带来幅值和相位误差，工具给出额定转速下的相位滞后，可在角度上补偿。建议 \(f_o \ge 3\sim5\,f_{e,max}\)。</p>
+        <h4>7.3 滑模观测器 SMO</h4>
+        <div class="eq">\[ L\frac{d\hat i}{dt} = u - R_s\hat i - z,\quad z = k\,\mathrm{sat}\!\left(\frac{\hat i - i}{\Phi}\right),\quad \hat e = \frac{\omega_c}{s + \omega_c}z \]</div>
+        <p>滑模存在条件 \(k > |e|_{max}\)，取 \(k = \eta\,\omega_{e,max}\psi_f\)。低通滤波带来相位滞后 \(\Delta\theta = \arctan(\omega_e/\omega_c)\)，需在角度上补偿；离散实现时电流抖振幅值约 \(kT_s/L\)。</p>
+        <h4>7.4 负载转矩观测器 (Luenberger)</h4>
+        <div class="eq">\[ \dot{\hat\omega} = \frac{K_ti_q - \hat T_L - B\hat\omega}{J} + l_1(\omega - \hat\omega),\qquad \dot{\hat T}_L = -l_2(\omega - \hat\omega) \]</div>
+        <div class="eq">\[ s^2 + \left(\frac{B}{J} + l_1\right)s + \frac{l_2}{J} = s^2 + 2\zeta\omega_os + \omega_o^2\ \Rightarrow\ l_1 = 2\zeta\omega_o - \frac{B}{J},\quad l_2 = J\omega_o^2 \]</div>
+        <p>补偿电流 \(i_q^{comp} = \hat T_L/K_t\) 加到速度环输出。观测器在速度环周期 \(T_\omega\) 执行，离散极点为 \(\mathbf{I} + T_\omega\mathbf{A}\) 的特征值。</p>
+      </section>
+
+      <section id="h-pu">
+        <h3>8. 标幺化 (定点/Q 格式程序常用)</h3>
+        <div class="eq">\[ K_{p,pu}^{cur} = K_p\frac{I_b}{U_b},\quad K_{i,pu}^{cur} = K_i\frac{I_b}{U_b};\qquad K_{p,pu}^{spd} = K_{p\omega}\frac{\omega_{mb}}{I_b},\quad K_{i,pu}^{spd} = K_{i\omega}\frac{\omega_{mb}}{I_b} \]</div>
+        <div class="eq">\[ K_{pp,pu} = K_{pp}\,\frac{2\pi}{\omega_{mb}}\quad(\theta_{pu} = 1\ \text{对应一圈}),\qquad \omega_{mb} = \frac{2\pi n_b}{60} \]</div>
+      </section>
+
+      <section id="h-tips">
+        <h3>9. 调试建议</h3>
+        <table>
+          <tr><th>环路</th><th>常用范围</th><th>说明</th></tr>
+          <tr><td>电流环</td><td>\(f_{cc} \le f_s/10\)，PM ≥ 45°</td><td>先锁轴做 d 轴阶跃，检查超调。超调大说明延时被低估或电感偏小。</td></tr>
+          <tr><td>速度环</td><td>\(f_{sc} \approx f_{cc}/5 \sim f_{cc}/10\)</td><td>惯量比大时先辨识 J。噪声大时降低滤波截止或带宽。</td></tr>
+          <tr><td>位置环</td><td>\(f_{pc} \approx f_{sc}/3 \sim f_{sc}/5\)</td><td>不允许超调的场合 \(f_{pc}\) 取更低值，并配合前馈。</td></tr>
+          <tr><td>观测器</td><td>PLL \(f_n\) 高于速度环带宽，EMF 观测器 \(f_o \ge 3 f_{e,max}\)</td><td>带宽越高噪声越大。注意离散极点 \(|z| &lt; 1\)，且实际值越小越好。</td></tr>
+        </table>
+        <p>参数辨识误差的影响：电感偏差主要影响电流环增益（带宽按比例变化），电阻偏差只影响 PI 零点（低频）。惯量偏差直接按比例改变速度环带宽。</p>
+      </section>
+    </article>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const TAU = 2 * Math.PI;
+const STORE = 'pmsm-tuner-v1';
+
+/* ---------- complex numbers ---------- */
+const C = (re, im = 0) => ({ re, im });
+const cadd = (a, b) => C(a.re + b.re, a.im + b.im);
+const csub = (a, b) => C(a.re - b.re, a.im - b.im);
+const cmul = (a, b) => C(a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re);
+const cdiv = (a, b) => { const d = b.re * b.re + b.im * b.im; return C((a.re * b.re + a.im * b.im) / d, (a.im * b.re - a.re * b.im) / d); };
+const cabs = a => Math.hypot(a.re, a.im);
+const carg = a => Math.atan2(a.im, a.re);
+const cexpj = t => C(Math.cos(t), Math.sin(t));
+const cscale = (a, k) => C(a.re * k, a.im * k);
+const ONE = C(1, 0);
+// zero-order hold factor (1-e^{-jwT})/(jwT)
+const zohF = (w, T) => w * T < 1e-9 ? ONE : cdiv(csub(ONE, cexpj(-w * T)), C(0, w * T));
+// discrete PI at z=e^{jwT}: (b0 + b1 z^-1)/(1 - z^-1)
+const piZ = (w, T, b0, b1) => { const zi = cexpj(-w * T); return cdiv(cadd(C(b0), cscale(zi, b1)), csub(ONE, zi)); };
+
+/* ---------- polynomial roots (Durand–Kerner), coeffs highest first ---------- */
+function roots(coef) {
+  let c = coef.slice(); while (c.length && Math.abs(c[0]) < 1e-300) c.shift();
+  const n = c.length - 1; if (n < 1) return [];
+  c = c.map(x => x / c[0]);
+  const r = []; let p0 = ONE; for (let i = 0; i < n; i++) { r.push(p0); p0 = cmul(p0, C(0.4, 0.9)); }
+  const ev = z => c.reduce((acc, a) => cadd(cmul(acc, z), C(a)), C(0));
+  for (let it = 0; it < 500; it++) {
+    let mx = 0;
+    for (let i = 0; i < n; i++) {
+      let den = ONE; for (let j = 0; j < n; j++) if (j !== i) den = cmul(den, csub(r[i], r[j]));
+      const d = cdiv(ev(r[i]), den); r[i] = csub(r[i], d); mx = Math.max(mx, cabs(d));
+    }
+    if (mx < 1e-13) break;
+  }
+  return r;
+}
+const polyMul = (a, b) => { const r = new Array(a.length + b.length - 1).fill(0); a.forEach((x, i) => b.forEach((y, j) => r[i + j] += x * y)); return r; };
+const polyAdd = (a, b) => { const n = Math.max(a.length, b.length); const A = Array(n - a.length).fill(0).concat(a), B = Array(n - b.length).fill(0).concat(b); return A.map((x, i) => x + B[i]); };
+const eig2 = (a11, a12, a21, a22) => roots([1, -(a11 + a22), a11 * a22 - a12 * a21]);
+
+/* ---------- formatting ---------- */
+function fmt(x, p = 4) {
+  if (x === undefined || x === null || !isFinite(x)) return '—';
+  if (x === 0) return '0';
+  const a = Math.abs(x);
+  if (a < 1e-3 || a >= 1e6) return x.toExponential(p - 1).replace('e+', 'e');
+  return String(+x.toPrecision(p));
+}
+const fmtHz = f => !isFinite(f) ? '—' : f >= 1000 ? fmt(f / 1000, 3) + ' kHz' : fmt(f, 3) + ' Hz';
+const fmtT = t => !isFinite(t) ? '—' : t < 1e-3 ? fmt(t * 1e6, 3) + ' µs' : t < 1 ? fmt(t * 1e3, 3) + ' ms' : fmt(t, 3) + ' s';
+const deg = r => r * 180 / Math.PI;
+
+/* ---------- PI discretization ---------- */
+function piCoef(Kp, Ki, T, m) {
+  if (m === 'fe') return { b0: Kp, b1: -Kp + Ki * T };
+  if (m === 'tu') return { b0: Kp + Ki * T / 2, b1: -Kp + Ki * T / 2 };
+  return { b0: Kp + Ki * T, b1: -Kp };
+}
+const DISC_NAME = { be: '后向欧拉', fe: '前向欧拉', tu: 'Tustin' };
+
+/* ---------- parameters ---------- */
+const FIELDS = ['motorType','Rs','Ld','Lq','pp','fluxMode','fluxVal','Jm','JL','Bv','Irated','Imax','nRated','nMax','Vdc','fsw','upd','nd','disc','Nw','ff','Np','enc','Vb','Ib','nb',
+  'fcc','curMethod','curStep','spdMethod','fsc','Nz','aSO','ktMode','spdStep','loadPct','fpc','vff','posStep','fpll','zpll','femf','zemf','smoEta','smoLpf','flo','zlo'];
+const DEFAULTS = {};
+function captureDefaults() { FIELDS.forEach(id => DEFAULTS[id] = $(id).value); }
+
+function readP() {
+  const v = id => parseFloat($(id).value);
+  const P = {};
+  P.type = $('motorType').value;
+  P.Rs = v('Rs'); P.Ld = v('Ld') * 1e-3; P.Lq = P.type === 'spm' ? P.Ld : v('Lq') * 1e-3;
+  P.p = Math.max(1, Math.round(v('pp')));
+  const fm = $('fluxMode').value, fv = v('fluxVal');
+  P.psi = fm === 'psi' ? fv : fm === 'ke' ? fv * Math.SQRT2 / (Math.sqrt(3) * P.p * 1000 * TAU / 60) : fv / (1.5 * P.p);
+  P.J = (v('Jm') + v('JL')) * 1e-4; P.Jm = v('Jm') * 1e-4; P.B = v('Bv') || 0;
+  P.In = v('Irated'); P.Imax = v('Imax'); P.nN = v('nRated'); P.nMax = v('nMax'); P.Vdc = v('Vdc');
+  P.fsw = v('fsw'); P.upd = $('upd').value; P.Nd = parseInt($('nd').value, 10); P.disc = $('disc').value;
+  P.Ts = P.upd === 'double' ? 1 / (2 * P.fsw) : 1 / P.fsw; P.fs = 1 / P.Ts;
+  P.Td = (P.Nd + 0.5) * P.Ts;
+  P.Nw = Math.max(1, Math.round(v('Nw'))); P.Tw = P.Nw * P.Ts;
+  P.Np = Math.max(1, Math.round(v('Np'))); P.Tp = P.Np * P.Ts;
+  P.ff = v('ff') || 0; P.enc = v('enc') || 0;
+  P.Vmax = P.Vdc / Math.sqrt(3);
+  P.Vb = v('Vb') || P.Vmax; P.Ib = v('Ib') || P.Imax; P.nb = v('nb') || P.nMax;
+  P.wmb = P.nb * TAU / 60;
+  // torque constants
+  P.Kt0 = 1.5 * P.p * P.psi;
+  const dL = P.Lq - P.Ld;
+  if (P.type === 'ipm' && Math.abs(dL) > 1e-12) {
+    const Is = P.In;
+    let id = (P.psi - Math.sqrt(P.psi * P.psi + 8 * dL * dL * Is * Is)) / (4 * dL);
+    if (dL < 0) id = 0; // Ld > Lq: MTPA uses positive id, unusual; fall back to id=0
+    const iq = Math.sqrt(Math.max(0, Is * Is - id * id));
+    P.idM = id; P.iqM = iq;
+    P.TeM = 1.5 * P.p * (P.psi * iq + (P.Ld - P.Lq) * id * iq);
+    P.KtM = P.TeM / Is;
+  } else { P.idM = 0; P.iqM = P.In; P.TeM = P.Kt0 * P.In; P.KtM = P.Kt0; }
+  P.ktMode = P.type === 'ipm' ? $('ktMode').value : 'id0';
+  P.Kt = P.ktMode === 'mtpa' ? P.KtM : P.Kt0;
+  P.TN = P.type === 'ipm' && P.ktMode === 'mtpa' ? P.TeM : P.Kt0 * P.In;
+  return P;
+}
+
+function validP(P) {
+  const bad = [];
+  [['Rs', P.Rs], ['Ld', P.Ld], ['Lq', P.Lq], ['ψf', P.psi], ['J', P.J], ['Irated', P.In], ['Imax', P.Imax], ['Udc', P.Vdc], ['fpwm', P.fsw], ['nmax', P.nMax]]
+    .forEach(([n, x]) => { if (!(x > 0)) bad.push(n); });
+  return bad;
+}
+
+/* ---------- frequency sweep analysis ---------- */
+function sweep(fmin, fmax, n, Lf, Tf) {
+  const out = { f: [], mag: [], ph: [], cl: [] };
+  let prev = null, off = 0;
+  for (let i = 0; i < n; i++) {
+    const f = fmin * Math.pow(fmax / fmin, i / (n - 1)); const w = TAU * f;
+    const L = Lf(w); let ph = deg(carg(L));
+    if (prev !== null) { while (ph + off - prev > 180) off -= 360; while (ph + off - prev < -180) off += 360; }
+    ph += off; prev = ph;
+    const T = Tf ? Tf(w, L) : cdiv(L, cadd(ONE, L));
+    out.f.push(f); out.mag.push(20 * Math.log10(cabs(L))); out.ph.push(ph); out.cl.push(20 * Math.log10(cabs(T)));
+  }
+  // margins
+  let fc = NaN, pm = NaN, gm = Infinity, fg = NaN, bw = NaN, mr = -Infinity;
+  for (let i = 1; i < n; i++) {
+    if (isNaN(fc) && out.mag[i - 1] >= 0 && out.mag[i] < 0) {
+      const t = out.mag[i - 1] / (out.mag[i - 1] - out.mag[i]);
+      fc = out.f[i - 1] * Math.pow(out.f[i] / out.f[i - 1], t);
+      const ph = out.ph[i - 1] + t * (out.ph[i] - out.ph[i - 1]);
+      pm = 180 + ph; while (pm > 180) pm -= 360; while (pm < -180) pm += 360;
+    }
+  }
+  for (let i = 1; i < n && !isNaN(fc); i++) {
+    if (out.f[i] <= fc) continue;
+    const a = (out.ph[i - 1] + 180) / 360, b = (out.ph[i] + 180) / 360;
+    if (Math.floor(a) !== Math.floor(b)) {
+      const lvl = Math.max(Math.floor(a), Math.floor(b)), t = (a - lvl) / (a - b);
+      gm = -(out.mag[i - 1] + t * (out.mag[i] - out.mag[i - 1])); fg = out.f[i - 1] * Math.pow(out.f[i] / out.f[i - 1], t); break;
+    }
+  }
+  for (let i = 0; i < n; i++) { mr = Math.max(mr, out.cl[i]); if (isNaN(bw) && out.cl[i] < -3.0103) bw = out.f[i]; }
+  Object.assign(out, { fc, pm, gm, fg, bw, mr });
+  return out;
+}
+
+/* ---------- step metrics ---------- */
+function stepMetrics(t, y, ref, t0 = 0, t1 = Infinity) {
+  let mx = -Infinity, t10 = NaN, t90 = NaN, ts = NaN;
+  const idx = []; for (let i = 0; i < t.length; i++) if (t[i] >= t0 && t[i] <= t1) idx.push(i);
+  idx.forEach(i => { mx = Math.max(mx, y[i]); if (isNaN(t10) && y[i] >= 0.1 * ref) t10 = t[i]; if (isNaN(t90) && y[i] >= 0.9 * ref) t90 = t[i]; });
+  for (let j = idx.length - 1; j >= 0; j--) { const i = idx[j]; if (Math.abs(y[i] - ref) > 0.02 * Math.abs(ref)) { ts = t[i] - t0; break; } }
+  return { os: Math.max(0, (mx - ref) / ref * 100), tr: t90 - t10, ts };
+}
+
+/* ============ CURRENT LOOP ============ */
+function designCurrent(P) {
+  const fcc = parseFloat($('fcc').value), wc = TAU * fcc, m = $('curMethod').value;
+  const ax = L => {
+    const a = Math.exp(-P.Rs * P.Ts / L), b = (1 - a) / P.Rs;
+    let Kp, Ki, b0, b1;
+    if (m === 'zd') {
+      const K = 1 - Math.exp(-wc * P.Ts);
+      b0 = K / b; b1 = -a * b0;
+      // equivalent continuous gains for the chosen discretization
+      if (P.disc === 'fe') { Kp = b0; Ki = (b0 + b1) / P.Ts; }
+      else if (P.disc === 'tu') { Ki = (b0 + b1) / P.Ts; Kp = b0 - Ki * P.Ts / 2; }
+      else { Kp = -b1; Ki = (b0 + b1) / P.Ts; }
+    } else { Kp = wc * L; Ki = wc * P.Rs; ({ b0, b1 } = piCoef(Kp, Ki, P.Ts, P.disc)); }
+    // discrete open loop L(z) = (b0 z + b1) b / (z^Nd (z-1)(z-a))
+    const num = [b * b0, b * b1];
+    let den = polyMul([1, -1], [1, -a]); for (let k = 0; k < P.Nd; k++) den = den.concat([0]);
+    const poles = roots(polyAdd(den, num));
+    const Lw = w => { const z = cexpj(w * P.Ts); const zi = cexpj(-w * P.Ts);
+      const Cz = cdiv(cadd(C(b0), cscale(zi, b1)), csub(ONE, zi));
+      let G = cdiv(cscale(zi, b), csub(ONE, cscale(zi, a)));
+      for (let k = 0; k < P.Nd; k++) G = cmul(G, zi);
+      return cmul(Cz, G); };
+    const sw = sweep(Math.max(1, fcc / 100), P.fs / 2 * 0.999, 500, Lw);
+    return { L, a, b, Kp, Ki, b0, b1, Ti: Kp / Ki, KiTI: Ki * P.Ts / Kp, poles, Lw, sw, rmax: Math.max(...poles.map(cabs)) };
+  };
+  const d = ax(P.Ld), q = ax(P.Lq);
+  const amp = parseFloat($('curStep').value) || 1;
+  d.sim = simCurrent(P, d, amp); q.sim = simCurrent(P, q, amp);
+  d.met = stepMetrics(d.sim.t, d.sim.y, amp); q.met = stepMetrics(q.sim.t, q.sim.y, amp);
+  return { fcc, wc, m, d, q, fcc45: 1 / (8 * P.Td), fcc60: 1 / (12 * P.Td) };
+}
+
+// sampled PI (incremental form) + continuous RL plant, Nd-sample delay, ZOH
+function simCurrent(P, ax, amp) {
+  const Ts = P.Ts, wcl = TAU * Math.max(1, parseFloat($('fcc').value));
+  const Tend = Math.max(10 / wcl, 40 * Ts), nS = Math.ceil(Tend / Ts), sub = 10, dt = Ts / sub;
+  const ad = Math.exp(-P.Rs * dt / ax.L), bd = (1 - ad) / P.Rs;
+  let i = 0, u = 0, uPrev = 0, ePrev = 0; const q = []; for (let k = 0; k < P.Nd; k++) q.push(0);
+  const t = [], y = [];
+  for (let k = 0; k < nS; k++) {
+    const e = amp - i;
+    let un = uPrev + ax.b0 * e + ax.b1 * ePrev; un = Math.max(-P.Vmax, Math.min(P.Vmax, un));
+    uPrev = un; ePrev = e;
+    q.push(un); u = q.shift();
+    for (let s = 0; s < sub; s++) { i = ad * i + bd * u; if (s % 2 === 0) { t.push((k * sub + s + 1) * dt); y.push(i); } }
+  }
+  return { t, y, amp };
+}
+
+/* ============ SPEED LOOP ============ */
+function designSpeed(P, cur) {
+  const m = $('spdMethod').value;
+  const wcc = cur.wc;
+  const wf = P.ff > 0 ? TAU * P.ff : Infinity;
+  let Kp, Ki, wsc, N, a;
+  const Tsig = 1 / wcc + (isFinite(wf) ? 1 / wf : 0) + P.Tw;
+  if (m === 'so') {
+    a = parseFloat($('aSO').value) || 2.4;
+    Kp = P.J / (a * P.Kt * Tsig); const Ti = a * a * Tsig; Ki = Kp / Ti; wsc = 1 / (a * Tsig); N = a;
+  } else {
+    wsc = TAU * parseFloat($('fsc').value); N = parseFloat($('Nz').value) || 4;
+    Kp = P.J * wsc / P.Kt; Ki = Kp * wsc / N;
+  }
+  const { b0, b1 } = piCoef(Kp, Ki, P.Tw, P.disc);
+  const alpha = isFinite(wf) ? 1 - Math.exp(-wf * P.Tw) : 1;
+  const q = cur.q;
+  const Tc = w => { const L = q.Lw(w); return cdiv(L, cadd(ONE, L)); };
+  const Fz = w => cdiv(C(alpha), csub(ONE, cscale(cexpj(-w * P.Tw), 1 - alpha)));
+  const Mech = w => cdiv(C(P.Kt), C(P.B, P.J * w));
+  const fwd = w => cmul(cmul(cmul(piZ(w, P.Tw, b0, b1), zohF(w, P.Tw)), Tc(w)), Mech(w));
+  const fb = w => cmul(zohF(w, P.Tw), Fz(w)); // Δθ/Tw averaging + IIR filter
+  const Lw = w => cmul(fwd(w), fb(w));
+  const Tw = w => { const L = Lw(w); return cdiv(fwd(w), cadd(ONE, L)); };
+  const fsc = wsc / TAU;
+  const sw = sweep(Math.max(0.1, fsc / 100), Math.min(P.fs / 2, 1 / (2 * P.Tw)) * 0.999, 500, Lw, (w) => Tw(w));
+  const R = { m, Kp, Ki, b0, b1, wsc, fsc, N, a, Tsig, alpha, wf, Lw, Tw, sw };
+  R.sim = simCascade(P, cur, R, null, 'speed');
+  return R;
+}
+
+/* ============ POSITION LOOP ============ */
+function designPos(P, cur, spd) {
+  const fpc = parseFloat($('fpc').value), Kpp = TAU * fpc;
+  const vff = (parseFloat($('vff').value) || 0) / 100;
+  const Kaff = P.J / P.Kt;
+  const Lw = w => cmul(cmul(C(Kpp), zohF(w, P.Tp)), cmul(spd.Tw(w), cdiv(ONE, C(0, w))));
+  const sw = sweep(Math.max(0.05, fpc / 100), Math.min(1 / (2 * P.Tp), spd.fsc * 20), 500, Lw);
+  const R = { fpc, Kpp, vff, Kaff, Lw, sw };
+  R.sim = simCascade(P, cur, spd, R, 'pos');
+  return R;
+}
+
+/* multi-rate cascade simulation: current (Ts) / speed (Tw) / position (Tp) */
+function simCascade(P, cur, spd, pos, mode) {
+  const Ts = P.Ts, q = cur.q;
+  const zoz = Math.max(1e-3, spd.Ki / spd.Kp);
+  let Tend, Tload = Infinity, Tl = 0;
+  const step = mode === 'speed' ? (parseFloat($('spdStep').value) || 100) * TAU / 60 : (parseFloat($('posStep').value) || 10) * Math.PI / 180;
+  if (mode === 'speed') {
+    const Tst = Math.min(4, 6 / spd.wsc + 3 / zoz);
+    const lp = (parseFloat($('loadPct').value) || 0) / 100;
+    if (lp > 0) { Tload = Tst; Tl = lp * P.TN; Tend = 2 * Tst; } else Tend = Tst;
+  } else Tend = Math.min(6, 10 / pos.Kpp + 3 / zoz);
+  let sub = 8; let nS = Math.ceil(Tend / Ts);
+  if (nS * sub > 600000) sub = Math.max(2, Math.floor(600000 / nS));
+  if (nS > 600000) nS = 600000;
+  const dt = Ts / sub;
+  const ad = Math.exp(-P.Rs * dt / q.L), bd = (1 - ad) / P.Rs;
+  let iq = 0, w = 0, th = 0, thPrevW = 0, wf = 0, iqRef = 0, ePrevC = 0, uPrev = 0, ePrevW = 0, wRef = 0;
+  const dq = []; for (let k = 0; k < P.Nd; k++) dq.push(0);
+  let u = 0;
+  const t = [], y = [], y2 = [], r = [];
+  const dec = Math.max(1, Math.floor(nS * sub / 1500));
+  let cnt = 0;
+  for (let k = 0; k < nS; k++) {
+    const tk = k * Ts;
+    // position loop
+    if (mode === 'pos' && k % P.Np === 0) {
+      wRef = pos.Kpp * (step - th); const wl = P.nMax * TAU / 60; wRef = Math.max(-wl, Math.min(wl, wRef));
+    }
+    if (mode === 'speed') wRef = step;
+    // speed loop
+    if (k % P.Nw === 0) {
+      const wm = (th - thPrevW) / P.Tw; thPrevW = th;
+      wf += spd.alpha * (wm - wf);
+      const e = wRef - wf;
+      let r1 = iqRef + spd.b0 * e + spd.b1 * ePrevW; r1 = Math.max(-P.Imax, Math.min(P.Imax, r1));
+      iqRef = r1; ePrevW = e;
+    }
+    // current loop (q axis) with decoupling feed-forward ωe·ψf
+    const ec = iqRef - iq;
+    const we = P.p * w;
+    let up = uPrev + q.b0 * ec + q.b1 * ePrevC; const ffv = we * P.psi;
+    up = Math.max(-P.Vmax - Math.abs(ffv), Math.min(P.Vmax + Math.abs(ffv), up));
+    uPrev = up; ePrevC = ec;
+    let uo = up + ffv; uo = Math.max(-P.Vmax, Math.min(P.Vmax, uo));
+    dq.push(uo); u = dq.shift();
+    for (let s = 0; s < sub; s++) {
+      const emf = P.p * w * P.psi;
+      iq = ad * iq + bd * (u - emf);
+      const TL = (tk + s * dt) >= Tload ? Tl * Math.sign(step || 1) : 0;
+      const Te = P.Kt * iq;
+      w += dt * (Te - TL - P.B * w) / P.J;
+      th += dt * w;
+      if (++cnt % dec === 0) {
+        t.push(tk + (s + 1) * dt);
+        if (mode === 'speed') { y.push(w * 60 / TAU); r.push(wRef * 60 / TAU); }
+        else { y.push(th * 180 / Math.PI); r.push(step * 180 / Math.PI); }
+        y2.push(iq);
+      }
+    }
+  }
+  const ref = mode === 'speed' ? step * 60 / TAU : step * 180 / Math.PI;
+  const met = stepMetrics(t, y, ref, 0, Tload);
+  let dip = NaN, rec = NaN;
+  if (mode === 'speed' && isFinite(Tload)) {
+    let mn = Infinity, ti = 0;
+    for (let i = 0; i < t.length; i++) if (t[i] >= Tload) { if (y[i] < mn) { mn = y[i]; ti = i; } }
+    dip = ref - mn;
+    for (let i = t.length - 1; i >= 0; i--) { if (t[i] < Tload) break; if (Math.abs(y[i] - ref) > 0.02 * Math.abs(ref)) { rec = t[i] - Tload; break; } }
+  }
+  return { t, y, y2, r, ref, met, dip, rec, Tload, Tl };
+}
+
+/* ============ OBSERVERS ============ */
+function designObs(P) {
+  const R = {};
+  const wn = TAU * parseFloat($('fpll').value), z = parseFloat($('zpll').value) || 0.707;
+  R.pll = { wn, z, Kp: 2 * z * wn, Ki: wn * wn };
+  R.pll.bw = wn * Math.sqrt(1 + 2 * z * z + Math.sqrt(Math.pow(1 + 2 * z * z, 2) + 1)) / TAU;
+  R.pll.poles = eig2(1 - P.Ts * R.pll.Kp, -P.Ts, R.pll.Ki * P.Ts, 1);
+  R.pll.Emin = P.p * (P.nN * 0.05 * TAU / 60) * P.psi;
+
+  const wo = TAU * parseFloat($('femf').value), zo = parseFloat($('zemf').value) || 0.707, L = P.Lq;
+  const e = { wo, z: zo, Kp: 2 * zo * wo * L - P.Rs, Ki: wo * wo * L };
+  const weN = P.p * P.nN * TAU / 60;
+  const H = cdiv(C(e.Ki, e.Kp * weN), C(e.Ki - L * weN * weN, (P.Rs + e.Kp) * weN));
+  e.gainN = cabs(H); e.phN = deg(carg(H)); e.weN = weN;
+  e.poles = eig2(1 - P.Ts * (P.Rs + e.Kp) / L, -P.Ts / L, e.Ki * P.Ts, 1);
+  R.emf = e;
+
+  const eta = parseFloat($('smoEta').value) || 1.5, flp = parseFloat($('smoLpf').value) || 1000;
+  const weMax = P.p * P.nMax * TAU / 60;
+  const s = { eta, k: eta * weMax * P.psi, flp, wlp: TAU * flp, weMax };
+  s.lagN = deg(Math.atan(weN / s.wlp)); s.lagMax = deg(Math.atan(weMax / s.wlp));
+  s.ampN = 1 / Math.sqrt(1 + Math.pow(weN / s.wlp, 2));
+  s.alpha = 1 - Math.exp(-s.wlp * P.Ts);
+  s.ripple = s.k * P.Ts / P.Ld;
+  R.smo = s;
+
+  const wl = TAU * parseFloat($('flo').value), zl = parseFloat($('zlo').value) || 0.707;
+  const lo = { wo: wl, z: zl, l1: 2 * zl * wl - P.B / P.J, l2: P.J * wl * wl };
+  lo.poles = eig2(1 - P.Tw * (P.B / P.J + lo.l1), -P.Tw / P.J, P.Tw * lo.l2, 1);
+  lo.Kcomp = 1 / P.Kt;
+  R.lo = lo;
+  return R;
+}
+
+/* ============ PLOTTING ============ */
+function niceStep(span, count) {
+  let step = Math.pow(10, Math.floor(Math.log10(span / count)));
+  const err = span / count / step;
+  if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2;
+  return step;
+}
+function ticksLin(min, max, count) { const s = niceStep(max - min || 1, count); const t = []; for (let v = Math.ceil(min / s - 1e-9) * s; v <= max + s * 1e-9; v += s) t.push(+v.toFixed(10)); return t; }
+const fmtTick = v => { const a = Math.abs(v); if (a >= 1000) return (+(v / 1000).toPrecision(3)) + 'k'; if (a > 0 && a < 0.01) return v.toExponential(0); return String(+v.toPrecision(3)); };
+
+function plotSVG(el, o) {
+  const W = Math.max(280, el.clientWidth || 600), H = o.h || 210;
+  const m = { l: 50, r: o.r2 ? 46 : 12, t: 10, b: o.xlabel ? 34 : 22 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  let xmin = o.xmin, xmax = o.xmax, ymin = o.ymin, ymax = o.ymax;
+  const all = o.series.filter(s => !s.y2);
+  if (xmin === undefined) { xmin = Math.min(...all.map(s => Math.min(...s.x))); xmax = Math.max(...all.map(s => Math.max(...s.x))); }
+  if (ymin === undefined) {
+    let lo = Infinity, hi = -Infinity;
+    all.forEach(s => s.y.forEach(v => { if (isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }));
+    if (o.yclip) { lo = Math.max(lo, o.yclip[0]); hi = Math.min(hi, o.yclip[1]); }
+    const pad = (hi - lo) * 0.08 || 1; ymin = lo - pad; ymax = hi + pad;
+  }
+  const yt = o.yticks ? o.yticks(ymin, ymax) : ticksLin(ymin, ymax, Math.max(3, Math.round(ih / 40)));
+  ymin = Math.min(ymin, yt[0]); ymax = Math.max(ymax, yt[yt.length - 1]);
+  const X = o.xlog ? v => m.l + (Math.log10(v) - Math.log10(xmin)) / (Math.log10(xmax) - Math.log10(xmin)) * iw : v => m.l + (v - xmin) / (xmax - xmin) * iw;
+  const Y = v => m.t + (1 - (v - ymin) / (ymax - ymin)) * ih;
+  let g = '';
+  // grid
+  if (o.xlog) {
+    for (let d = Math.floor(Math.log10(xmin)); d <= Math.ceil(Math.log10(xmax)); d++) {
+      for (let k = 1; k < 10; k++) { const v = k * Math.pow(10, d); if (v < xmin || v > xmax) continue;
+        const x = X(v).toFixed(1); g += `<line x1="${x}" x2="${x}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--grid)" stroke-width="${k === 1 ? 1 : 0.6}"/>`;
+        if (k === 1) g += `<text x="${x}" y="${m.t + ih + 14}" text-anchor="middle">${fmtTick(v)}</text>`; }
+    }
+  } else {
+    ticksLin(xmin, xmax, Math.max(3, Math.round(iw / 80))).forEach(v => { const x = X(v).toFixed(1);
+      g += `<line x1="${x}" x2="${x}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--grid)"/><text x="${x}" y="${m.t + ih + 14}" text-anchor="middle">${fmtTick(o.xscale ? v * o.xscale : v)}</text>`; });
+  }
+  yt.forEach(v => { const y = Y(v).toFixed(1); g += `<line x1="${m.l}" x2="${m.l + iw}" y1="${y}" y2="${y}" stroke="var(--grid)"/><text x="${m.l - 6}" y="${+y + 3.5}" text-anchor="end">${fmtTick(v)}</text>`; });
+  (o.hlines || []).forEach(h => { if (h.v < ymin || h.v > ymax) return; const y = Y(h.v).toFixed(1); g += `<line x1="${m.l}" x2="${m.l + iw}" y1="${y}" y2="${y}" stroke="${h.c || 'var(--axis)'}" stroke-dasharray="${h.dash || ''}"/>`; });
+  (o.vlines || []).forEach(h => { if (h.v < xmin || h.v > xmax) return; const x = X(h.v).toFixed(1); g += `<line x1="${x}" x2="${x}" y1="${m.t}" y2="${m.t + ih}" stroke="${h.c || 'var(--ref)'}" stroke-dasharray="${h.dash || '4 3'}"/>` + (h.label ? `<text x="${+x + 4}" y="${m.t + 11}" style="fill:${h.c || 'var(--muted)'}">${h.label}</text>` : ''); });
+  g += `<rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="none" stroke="var(--axis)"/>`;
+  // y2 axis
+  let Y2 = null;
+  const s2 = o.series.filter(s => s.y2);
+  if (s2.length) {
+    let lo = Infinity, hi = -Infinity; s2.forEach(s => s.y.forEach(v => { lo = Math.min(lo, v); hi = Math.max(hi, v); }));
+    const pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
+    Y2 = v => m.t + (1 - (v - lo) / (hi - lo)) * ih;
+    ticksLin(lo, hi, 4).forEach(v => { const y = Y2(v); if (y < m.t || y > m.t + ih) return; g += `<text x="${m.l + iw + 6}" y="${(y + 3.5).toFixed(1)}" text-anchor="start" style="fill:var(--ch2)">${fmtTick(v)}</text>`; });
+  }
+  // series
+  g += `<defs><clipPath id="cp${el.id}"><rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}"/></clipPath></defs><g clip-path="url(#cp${el.id})">`;
+  o.series.forEach(s => {
+    const YY = s.y2 ? Y2 : Y; let d = '', pen = false;
+    for (let i = 0; i < s.x.length; i++) {
+      const xv = s.x[i], yv = s.y[i]; if (!isFinite(yv) || xv < xmin || xv > xmax) { pen = false; continue; }
+      d += (pen ? 'L' : 'M') + X(xv).toFixed(1) + ',' + YY(yv).toFixed(1); pen = true;
+    }
+    g += `<path d="${d}" fill="none" stroke="${s.c}" stroke-width="${s.w || 1.7}" ${s.dash ? `stroke-dasharray="${s.dash}"` : ''} stroke-linejoin="round"/>`;
+  });
+  (o.points || []).forEach(p => { if (p.x < xmin || p.x > xmax || p.y < ymin || p.y > ymax) return; g += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.5" fill="${p.c}" stroke="var(--panel)" stroke-width="1.5"/>`; });
+  g += '</g>';
+  if (o.ylabel) g += `<text x="12" y="${m.t + ih / 2}" transform="rotate(-90 12 ${m.t + ih / 2})" text-anchor="middle">${o.ylabel}</text>`;
+  if (o.xlabel) g += `<text x="${m.l + iw / 2}" y="${H - 4}" text-anchor="middle">${o.xlabel}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${o.aria || ''}">${g}</svg>`;
+}
+const phaseTicks = (lo, hi) => { const span = hi - lo; const st = span > 540 ? 180 : span > 240 ? 90 : span > 100 ? 45 : 30; const t = []; for (let v = Math.ceil(lo / st) * st; v <= hi; v += st) t.push(v); if (t.length < 2) t.push(t[0] + st); return t; };
+
+function bode(el, list, opt = {}) {
+  const fmin = Math.min(...list.map(s => s.sw.f[0])), fmax = Math.max(...list.map(s => s.sw.f[s.sw.f.length - 1]));
+  const mag = [], ph = [];
+  list.forEach(s => {
+    mag.push({ x: s.sw.f, y: s.sw.mag, c: s.c });
+    if (s.cl) mag.push({ x: s.sw.f, y: s.sw.cl, c: 'var(--ch3)', w: 1.3 });
+    ph.push({ x: s.sw.f, y: s.sw.ph, c: s.c });
+  });
+  const vl = (opt.vlines || []);
+  const pts = list.filter(s => isFinite(s.sw.fc)).map(s => ({ x: s.sw.fc, y: 0, c: s.c }));
+  const ppts = list.filter(s => isFinite(s.sw.fc)).map(s => ({ x: s.sw.fc, y: s.sw.pm - 180, c: s.c }));
+  const allPh = list.flatMap(s => s.sw.ph);
+  const phMin = Math.max(Math.min(...allPh), -540), phMax = Math.min(Math.max(...allPh), 90);
+  el.innerHTML = plotSVG({ id: el.id + 'm', clientWidth: el.clientWidth }, { xlog: true, xmin: fmin, xmax: fmax, series: mag, ylabel: '幅值 dB', yclip: [-80, 80], h: 170, hlines: [{ v: 0, c: 'var(--axis)' }, { v: -3, c: 'var(--ch3)', dash: '2 3' }], vlines: vl, points: pts, aria: '幅频特性' })
+    + plotSVG({ id: el.id + 'p', clientWidth: el.clientWidth }, { xlog: true, xmin: fmin, xmax: fmax, series: ph, ylabel: '相位 °', xlabel: '频率 Hz', h: 170, ymin: phMin - 10, ymax: phMax + 10, yticks: phaseTicks, hlines: [{ v: -180, c: 'var(--bad)', dash: '4 3' }], vlines: vl, points: ppts, aria: '相频特性' });
+}
+
+function zplane(el, groups) {
+  const W = Math.min(el.clientWidth || 300, 320), H = W, cx = W / 2, cy = H / 2;
+  let rmax = 1.15; groups.forEach(g => g.p.forEach(p => rmax = Math.max(rmax, cabs(p) * 1.1)));
+  const S = (W / 2 - 18) / rmax;
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="z 平面极点图">`;
+  s += `<line x1="8" x2="${W - 8}" y1="${cy}" y2="${cy}" stroke="var(--grid)"/><line y1="8" y2="${H - 8}" x1="${cx}" x2="${cx}" stroke="var(--grid)"/>`;
+  s += `<circle cx="${cx}" cy="${cy}" r="${S}" fill="none" stroke="var(--axis)" stroke-dasharray="4 3"/>`;
+  [0.5].forEach(r => s += `<circle cx="${cx}" cy="${cy}" r="${S * r}" fill="none" stroke="var(--grid)"/>`);
+  s += `<text x="${cx + S + 3}" y="${cy - 4}">1</text><text x="${cx - S - 14}" y="${cy - 4}">−1</text><text x="${cx + 4}" y="${cy - S - 4}">j</text>`;
+  groups.forEach(g => g.p.forEach(p => {
+    const x = cx + p.re * S, y = cy - p.im * S, k = 4.5;
+    s += `<path d="M${x - k},${y - k}L${x + k},${y + k}M${x - k},${y + k}L${x + k},${y - k}" stroke="${g.c}" stroke-width="2"/>`;
+  }));
+  s += '</svg>';
+  el.innerHTML = `<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">${s}<div class="hint">${groups.map(g => `<div><span style="color:${g.c};font-weight:600">×</span> ${g.name}：max|z| = <span class="mono">${fmt(Math.max(...g.p.map(cabs)), 4)}</span></div>`).join('')}<div style="margin-top:6px">虚线为单位圆，极点须在圆内；越靠近原点衰减越快。</div></div></div>`;
+}
+
+/* ============ RENDER ============ */
+const cpBtn = v => `<button class="cp" type="button" data-v="${v}" title="复制数值">复制</button>`;
+function row(name, sym, val, unit) { return `<tr><td>${name}</td><td class="s">${sym}</td><td class="v">${fmt(val, 5)}${cpBtn(fmt(val, 7))}</td><td class="u">${unit}</td></tr>`; }
+const secRow = (t, n = 4) => `<tr class="sec"><td colspan="${n}">${t}</td></tr>`;
+const TH = '<tr><th>参数</th><th>符号</th><th style="text-align:right">数值</th><th>单位</th></tr>';
+function metric(k, v, cls = '') { return `<div class="m ${cls}"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+const pmCls = (pm, good = 60, ok = 45) => !isFinite(pm) ? 'bad' : pm >= good ? 'ok' : pm >= ok ? 'warn' : 'bad';
+
+let R = null;
+function compute() {
+  const P = readP();
+  const bad = validP(P);
+  if (bad.length) { $('notes').innerHTML = `<div class="note bad">以下参数必须为正数：${bad.join('、')}。修正后结果自动更新。</div>`; return; }
+  const cur = designCurrent(P);
+  const spd = designSpeed(P, cur);
+  const pos = designPos(P, cur, spd);
+  const obs = designObs(P);
+  R = { P, cur, spd, pos, obs };
+  renderDerived(P, cur, spd, pos);
+  renderCurrent(P, cur);
+  renderSpeed(P, cur, spd);
+  renderPos(P, spd, pos);
+  renderObs(P, obs);
+  renderExport();
+  save();
+}
+
+function renderDerived(P, cur, spd, pos) {
+  const feMax = P.p * P.nMax / 60;
+  // base speed at rated current (neglect Rs)
+  const id = P.ktMode === 'mtpa' ? P.idM : 0, iq = P.ktMode === 'mtpa' ? P.iqM : P.In;
+  const weB = P.Vmax / Math.hypot(P.Ld * id + P.psi, P.Lq * iq);
+  const nB = weB / P.p * 60 / TAU;
+  const tauM = P.J * P.Rs / (1.5 * P.p * P.p * P.psi * P.psi);
+  const Ellpk = Math.sqrt(3) * P.p * P.nMax * TAU / 60 * P.psi;
+  const ichar = P.psi / P.Ld;
+  const items = [
+    ['控制周期 Ts', fmtT(P.Ts) + ` <small>fs = ${fmtHz(P.fs)}</small>`],
+    ['等效延时 Td=(Nd+0.5)Ts', fmtT(P.Td)],
+    ['速度环 / 位置环周期', fmtT(P.Tw) + ' / ' + fmtT(P.Tp)],
+    ['永磁磁链 ψf', fmt(P.psi, 4) + '<small>Wb</small>'],
+    ['Kt (id=0)', fmt(P.Kt0, 4) + '<small>N·m/A</small>'],
+    ...(P.type === 'ipm' ? [['MTPA @ IN: id / iq', fmt(P.idM, 3) + ' / ' + fmt(P.iqM, 3) + '<small>A</small>'], ['Kt,eff (MTPA)', fmt(P.KtM, 4) + '<small>N·m/A</small>'], ['凸极比 Lq/Ld', fmt(P.Lq / P.Ld, 3)]] : []),
+    ['额定转矩 TN', fmt(P.TN, 4) + '<small>N·m</small>'],
+    ['τd / τq', fmtT(P.Ld / P.Rs) + ' / ' + fmtT(P.Lq / P.Rs)],
+    ['机电时间常数 τm', fmtT(tauM)],
+    ['总惯量 J / 惯量比', fmt(P.J * 1e4, 4) + '<small>kg·cm²</small> / ' + fmt((P.J - P.Jm) / P.Jm, 3)],
+    ['最高电频率 fe,max', fmtHz(feMax) + ` <small>fs/fe = ${fmt(P.fs / feMax, 3)}</small>`],
+    ['基速 @IN (忽略Rs)', fmt(nB, 4) + '<small>rpm</small>'],
+    ['特征电流 ψf/Ld', fmt(ichar, 4) + '<small>A</small>'],
+    ['电压上限 Udc/√3', fmt(P.Vmax, 4) + '<small>V</small>'],
+  ];
+  $('derived').innerHTML = items.map(([k, v]) => `<div class="dv"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  const N = [];
+  const r = P.fs / cur.fcc;
+  if (r < 10) N.push(['bad', `电流环带宽 ${fmtHz(cur.fcc)} 超过 fs/10 (${fmtHz(P.fs / 10)})，延时影响显著。PM≥45° 上限约 ${fmtHz(cur.fcc45)}，PM≥60° 约 ${fmtHz(cur.fcc60)}。`]);
+  else if (r < 15) N.push(['warn', `电流环带宽为 fs/${fmt(r, 3)}，接近上限。PM≥60° 推荐 ≤ ${fmtHz(cur.fcc60)}。`]);
+  else N.push(['ok', `电流环带宽为 fs/${fmt(r, 3)}。PM≥60° 推荐上限 ${fmtHz(cur.fcc60)}，PM≥45° 上限 ${fmtHz(cur.fcc45)}。`]);
+  const rs = cur.fcc / spd.fsc;
+  N.push([rs >= 5 ? 'ok' : rs >= 3 ? 'warn' : 'bad', `速度环带宽 ${fmtHz(spd.fsc)}，为电流环的 1/${fmt(rs, 3)}（建议 1/5~1/10）。速度环采样频率 ${fmtHz(1 / P.Tw)}，为速度带宽的 ${fmt(1 / P.Tw / spd.fsc, 3)} 倍（建议 ≥ 10~20）。`]);
+  const rp = spd.fsc / pos.fpc;
+  N.push([rp >= 3 ? 'ok' : rp >= 2 ? 'warn' : 'bad', `位置环带宽为速度环的 1/${fmt(rp, 3)}（建议 1/3~1/5）。`]);
+  if (P.fs / feMax < 10) N.push(['warn', `载波比 fs/fe,max = ${fmt(P.fs / feMax, 3)} 偏低（<10），高速时离散化误差和 dq 耦合会明显增大，建议采用复矢量/离散域解耦。`]);
+  if (Ellpk > P.Vdc) N.push(['warn', `最高转速下线反电势峰值 ${fmt(Ellpk, 4)} V 超过母线电压，需弱磁运行，且失控时存在不控整流回馈风险。`]);
+  if (P.type === 'ipm' && ichar < P.Imax) N.push(['ok', `特征电流 ψf/Ld = ${fmt(ichar, 4)} A < Imax，理论上可实现无限弱磁扩速。`]);
+  $('notes').innerHTML = N.map(([c, t]) => `<div class="note ${c}">${t}</div>`).join('');
+}
+
+function renderCurrent(P, cur) {
+  const { d, q } = cur;
+  $('curMethodHint').textContent = cur.m === 'zd' ? `K = 1−e^(−ωcc·Ts) = ${fmt(1 - Math.exp(-cur.wc * P.Ts), 4)}；Nd=1 时 K≤0.25 无超调` : `PI 零点 Ki/Kp = Rs/L，离散化方法：${DISC_NAME[P.disc]}`;
+  const axRows = (n, a, Ts) => secRow(n + ' 轴') +
+    row('比例增益', `Kp${n}`, a.Kp, 'V/A') +
+    row('积分增益', `Ki${n}`, a.Ki, 'V/(A·s)') +
+    row('积分时间常数', `Ti${n}=Kp/Ki`, a.Ti, 's') +
+    row('离散积分系数', `Ki${n}·Ts`, a.Ki * Ts, 'V/A') +
+    row('串联式积分系数', `Ki'=Ts/Ti`, a.KiTI, '—') +
+    row('增量式系数', 'b0', a.b0, 'V/A') +
+    row('增量式系数', 'b1', a.b1, 'V/A') +
+    row('标幺 Kp', `Kp${n},pu`, a.Kp * P.Ib / P.Vb, '—') +
+    row('标幺 Ki·Ts', `Ki${n},pu·Ts`, a.Ki * Ts * P.Ib / P.Vb, '—') +
+    row('对象离散极点', 'a=e^(−RTs/L)', a.a, '—');
+  $('curTbl').innerHTML = TH + axRows('d', d, P.Ts) + axRows('q', q, P.Ts) +
+    secRow('其他') + row('电压限幅', 'Udc/√3', P.Vmax, 'V') + row('采样周期', 'Ts', P.Ts, 's');
+  $('curMet').innerHTML =
+    metric('PM d / q', `${fmt(d.sw.pm, 3)}° / ${fmt(q.sw.pm, 3)}°`, pmCls(Math.min(d.sw.pm, q.sw.pm))) +
+    metric('GM d / q', `${fmt(d.sw.gm, 3)} / ${fmt(q.sw.gm, 3)} dB`, Math.min(d.sw.gm, q.sw.gm) >= 6 ? 'ok' : Math.min(d.sw.gm, q.sw.gm) >= 3 ? 'warn' : 'bad') +
+    metric('穿越频率', fmtHz(q.sw.fc)) +
+    metric('闭环 −3dB', fmtHz(q.sw.bw)) +
+    metric('超调 d / q', `${fmt(d.met.os, 3)}% / ${fmt(q.met.os, 3)}%`, Math.max(d.met.os, q.met.os) < 5 ? 'ok' : Math.max(d.met.os, q.met.os) < 20 ? 'warn' : 'bad') +
+    metric('上升时间 q', fmtT(q.met.tr)) +
+    metric('闭环 max|z|', fmt(Math.max(d.rmax, q.rmax), 4), Math.max(d.rmax, q.rmax) < 1 ? 'ok' : 'bad');
+  zplane($('curZ'), [{ p: d.poles, c: 'var(--ch1)', name: 'd 轴闭环' }, { p: q.poles, c: 'var(--ch2)', name: 'q 轴闭环' }]);
+  bode($('curBode'), [{ sw: d.sw, c: 'var(--ch1)' }, { sw: q.sw, c: 'var(--ch2)' }], { vlines: [{ v: cur.fcc, c: 'var(--accent)', label: 'fcc' }] });
+  const el = $('curStepP');
+  el.innerHTML = plotSVG(el, { xmin: 0, xmax: d.sim.t[d.sim.t.length - 1], xscale: 1000, xlabel: '时间 ms', ylabel: '电流 A', h: 340,
+    series: [{ x: [0, d.sim.t[d.sim.t.length - 1]], y: [d.sim.amp, d.sim.amp], c: 'var(--ref)', dash: '5 4', w: 1.2 }, { x: d.sim.t, y: d.sim.y, c: 'var(--ch1)' }, { x: q.sim.t, y: q.sim.y, c: 'var(--ch2)' }], aria: '电流阶跃响应' });
+}
+
+function renderSpeed(P, cur, spd) {
+  $('kFsc').hidden = spd.m === 'so'; $('kN').hidden = spd.m === 'so'; $('kA').hidden = spd.m !== 'so';
+  $('kKt').hidden = P.type !== 'ipm';
+  const rpm = TAU / 60;
+  $('spdTbl').innerHTML = TH +
+    secRow('速度 PI（输入 rad/s 机械，输出 iq* A）') +
+    row('比例增益', 'Kpω', spd.Kp, 'A/(rad/s)') +
+    row('积分增益', 'Kiω', spd.Ki, 'A/rad') +
+    row('比例增益 (rpm)', 'Kpω', spd.Kp * rpm, 'A/rpm') +
+    row('积分增益 (rpm)', 'Kiω', spd.Ki * rpm, 'A/(rpm·s)') +
+    row('积分时间常数', 'Ti=Kp/Ki', spd.Kp / spd.Ki, 's') +
+    row('离散积分系数', 'Kiω·Tω', spd.Ki * P.Tw, 'A/(rad/s)') +
+    row('串联式积分系数', "Ki'=Tω/Ti", spd.Ki * P.Tw / spd.Kp, '—') +
+    row('增量式系数', 'b0', spd.b0, 'A/(rad/s)') +
+    row('增量式系数', 'b1', spd.b1, 'A/(rad/s)') +
+    row('标幺 Kp', 'Kpω,pu', spd.Kp * P.wmb / P.Ib, '—') +
+    row('标幺 Ki·Tω', 'Kiω,pu·Tω', spd.Ki * P.Tw * P.wmb / P.Ib, '—') +
+    secRow('设计依据') +
+    row('设计穿越频率', 'ωsc', spd.wsc, 'rad/s') +
+    row('转矩常数', 'Kt', P.Kt, 'N·m/A') +
+    row('总惯量', 'J', P.J, 'kg·m²') +
+    row('等效小时间常数', 'TΣ', spd.Tsig, 's') +
+    row('测速滤波系数', 'α=1−e^(−ωfTω)', spd.alpha, '—') +
+    row('输出限幅', 'Imax', P.Imax, 'A');
+  const s = spd.sim;
+  const lp = (parseFloat($('loadPct').value) || 0) > 0;
+  const soPM = spd.m === 'so' ? deg(Math.asin((spd.a * spd.a - 1) / (spd.a * spd.a + 1))) : NaN;
+  $('spdMet').innerHTML =
+    metric('相位裕度 PM', fmt(spd.sw.pm, 3) + '°', pmCls(spd.sw.pm, 50, 35)) +
+    metric('幅值裕度 GM', fmt(spd.sw.gm, 3) + ' dB', spd.sw.gm >= 6 ? 'ok' : spd.sw.gm >= 3 ? 'warn' : 'bad') +
+    metric('实际穿越频率', fmtHz(spd.sw.fc)) +
+    metric('闭环 −3dB', fmtHz(spd.sw.bw)) +
+    metric('谐振峰 Mr', fmt(spd.sw.mr, 3) + ' dB', spd.sw.mr < 3 ? 'ok' : spd.sw.mr < 6 ? 'warn' : 'bad') +
+    metric('阶跃超调', fmt(s.met.os, 3) + '%', s.met.os < 15 ? 'ok' : s.met.os < 35 ? 'warn' : 'bad') +
+    metric('调节时间 2%', fmtT(s.met.ts)) +
+    (lp ? metric('负载跌落', fmt(s.dip, 3) + ' rpm') + metric('负载恢复 2%', fmtT(s.rec)) : '');
+  $('spdNote').innerHTML = (spd.m === 'so' ? `对称最优理论 PM = ${fmt(soPM, 3)}°（连续域），离散校核值见上。` : `带宽法理论 PM ≈ arctan(N) = ${fmt(deg(Math.atan(spd.N)), 3)}°，离散校核计入内环、ZOH、测速与滤波后的实际值见上。`) +
+    ` 仿真：t=0 速度阶跃${lp ? `，t=${fmtT(s.Tload)} 施加 ${fmt(s.Tl, 3)} N·m 负载` : ''}；电流限幅 ±${fmt(P.Imax, 3)} A。`;
+  bode($('spdBode'), [{ sw: spd.sw, c: 'var(--ch1)', cl: true }], { vlines: [{ v: spd.fsc, c: 'var(--accent)', label: 'fsc' }] });
+  const el = $('spdStepP');
+  el.innerHTML = plotSVG(el, { xmin: 0, xmax: s.t[s.t.length - 1], xscale: 1000, xlabel: '时间 ms', ylabel: '转速 rpm', h: 340, r2: true,
+    series: [{ x: s.t, y: s.r, c: 'var(--ref)', dash: '5 4', w: 1.2 }, { x: s.t, y: s.y, c: 'var(--ch1)' }, { x: s.t, y: s.y2, c: 'var(--ch2)', y2: true, w: 1.1 }], aria: '速度阶跃响应' });
+}
+
+function renderPos(P, spd, pos) {
+  const vN = P.nN * TAU / 60;
+  const ferr = (1 - pos.vff) * vN / pos.Kpp;
+  $('posTbl').innerHTML = TH +
+    secRow('位置 P（输入 rad 机械，输出 ω* rad/s）') +
+    row('位置比例增益', 'Kpp', pos.Kpp, '1/s') +
+    row('位置比例增益', 'Kpp', pos.Kpp * 60 / TAU / (360 / TAU) * 1, 'rpm/°') +
+    row('标幺 Kpp (1.0=1圈)', 'Kpp,pu', pos.Kpp * TAU / P.wmb, '—') +
+    row('速度前馈', 'Kvff', pos.vff, '—') +
+    row('加速度前馈', 'Kaff=J/Kt', pos.Kaff, 'A/(rad/s²)') +
+    secRow('跟随误差 (额定转速匀速)') +
+    row('跟随误差', 'eθ', ferr * 180 / Math.PI, '° 机械') +
+    row('跟随误差', 'eθ', ferr / TAU * P.enc, 'counts') +
+    row('位置环周期', 'Tθ', P.Tp, 's');
+  const s = pos.sim;
+  $('posMet').innerHTML =
+    metric('相位裕度 PM', fmt(pos.sw.pm, 3) + '°', pmCls(pos.sw.pm, 60, 45)) +
+    metric('幅值裕度 GM', fmt(pos.sw.gm, 3) + ' dB', pos.sw.gm >= 6 ? 'ok' : 'warn') +
+    metric('实际穿越频率', fmtHz(pos.sw.fc)) +
+    metric('闭环 −3dB', fmtHz(pos.sw.bw)) +
+    metric('阶跃超调', fmt(s.met.os, 3) + '%', s.met.os < 2 ? 'ok' : s.met.os < 10 ? 'warn' : 'bad') +
+    metric('调节时间 2%', fmtT(s.met.ts));
+  bode($('posBode'), [{ sw: pos.sw, c: 'var(--ch1)', cl: true }], { vlines: [{ v: pos.fpc, c: 'var(--accent)', label: 'fpc' }] });
+  const el = $('posStepP');
+  el.innerHTML = plotSVG(el, { xmin: 0, xmax: s.t[s.t.length - 1], xscale: 1000, xlabel: '时间 ms', ylabel: '位置 °', h: 340,
+    series: [{ x: s.t, y: s.r, c: 'var(--ref)', dash: '5 4', w: 1.2 }, { x: s.t, y: s.y, c: 'var(--ch1)' }], aria: '位置阶跃响应' });
+}
+
+function renderObs(P, o) {
+  const { pll, emf, smo, lo } = o;
+  $('obsTbl').innerHTML = TH +
+    secRow('PLL 锁相环（误差已归一化, rad → rad/s 电角度）') +
+    row('比例增益', 'Kp=2ζωn', pll.Kp, '1/s') +
+    row('积分增益', 'Ki=ωn²', pll.Ki, '1/s²') +
+    row('离散积分系数', 'Ki·Ts', pll.Ki * P.Ts, '1/s') +
+    row('闭环 −3dB 带宽', 'f3dB', pll.bw, 'Hz') +
+    secRow('PI 型扩展反电势观测器（αβ，Lq 模型）') +
+    row('比例增益', 'Kpo=2ζωoLq−Rs', emf.Kp, 'Ω') +
+    row('积分增益', 'Kio=ωo²Lq', emf.Ki, 'Ω/s') +
+    row('离散积分系数', 'Kio·Ts', emf.Ki * P.Ts, 'Ω') +
+    row('电流模型系数', 'Ts/Lq', P.Ts / P.Lq, 'A/V') +
+    row('额定转速下幅值比', '|ê/e|', emf.gainN, '—') +
+    row('额定转速下相位', '∠ê/e', emf.phN, '°') +
+    secRow('滑模观测器 SMO') +
+    row('滑模增益', 'k=η·ωe,max·ψf', smo.k, 'V') +
+    row('LPF 截止', 'ωc', smo.wlp, 'rad/s') +
+    row('LPF 离散系数', 'α=1−e^(−ωcTs)', smo.alpha, '—') +
+    row('额定转速相位补偿', 'arctan(ωe/ωc)', smo.lagN, '°') +
+    row('最高转速相位补偿', 'arctan(ωe/ωc)', smo.lagMax, '°') +
+    row('离散抖振幅值', 'k·Ts/Ld', smo.ripple, 'A') +
+    secRow('负载转矩观测器（Tω 周期执行）') +
+    row('速度误差增益', 'l1=2ζωo−B/J', lo.l1, '1/s') +
+    row('转矩误差增益', 'l2=Jωo²', lo.l2, 'N·m/(rad/s)·1/s') +
+    row('离散系数', 'l1·Tω', lo.l1 * P.Tw, '—') +
+    row('离散系数', 'l2·Tω', lo.l2 * P.Tw, 'N·m/(rad/s)') +
+    row('补偿电流系数', '1/Kt', lo.Kcomp, 'A/(N·m)');
+  const mx = p => Math.max(...p.map(cabs));
+  const cls = r => r < 0.98 ? 'ok' : r < 1 ? 'warn' : 'bad';
+  $('obsMet').innerHTML =
+    metric('PLL max|z|', fmt(mx(pll.poles), 4), cls(mx(pll.poles))) +
+    metric('EMF 观测器 max|z|', fmt(mx(emf.poles), 4), cls(mx(emf.poles))) +
+    metric('负载观测器 max|z|', fmt(mx(lo.poles), 4), cls(mx(lo.poles))) +
+    metric('EMF 观测器 Kpo', fmt(emf.Kp, 4), emf.Kp > 0 ? 'ok' : 'bad') +
+    metric('fo / fe,N', fmt(emf.wo / emf.weN, 3), emf.wo / emf.weN >= 3 ? 'ok' : 'warn');
+  zplane($('obsZ'), [{ p: pll.poles, c: 'var(--ch1)', name: 'PLL' }, { p: emf.poles, c: 'var(--ch2)', name: '反电势观测器' }, { p: lo.poles, c: 'var(--ch3)', name: '负载观测器' }]);
+}
+
+/* ============ EXPORT ============ */
+let expFmt = 'c';
+function renderExport() {
+  if (!R) return;
+  const { P, cur, spd, pos, obs } = R;
+  const f = x => fmt(x, 7);
+  const now = new Date().toISOString().slice(0, 10);
+  const vals = [
+    ['基本参数', [
+      ['MOTOR_RS', P.Rs, 'Ω'], ['MOTOR_LD', P.Ld, 'H'], ['MOTOR_LQ', P.Lq, 'H'], ['MOTOR_PSI_F', P.psi, 'Wb'], ['MOTOR_POLE_PAIRS', P.p, ''],
+      ['MOTOR_J', P.J, 'kg·m²'], ['MOTOR_B', P.B, 'N·m·s/rad'], ['MOTOR_KT', P.Kt, 'N·m/A'], ['VDC', P.Vdc, 'V'], ['V_MAX', P.Vmax, 'V, Udc/√3'], ['I_MAX', P.Imax, 'A'],
+      ['CTRL_TS', P.Ts, 's, 电流环周期'], ['SPD_TS', P.Tw, 's, 速度环周期'], ['POS_TS', P.Tp, 's, 位置环周期']]],
+    [`电流环 (fcc=${fmt(cur.fcc, 4)} Hz, ${cur.m === 'zd' ? 'z域对消' : 'IMC'}, ${DISC_NAME[P.disc]})`, [
+      ['ID_KP', cur.d.Kp, 'V/A'], ['ID_KI', cur.d.Ki, 'V/(A·s)'], ['ID_KI_TS', cur.d.Ki * P.Ts, 'Ki·Ts'], ['ID_B0', cur.d.b0, '增量式'], ['ID_B1', cur.d.b1, '增量式'],
+      ['IQ_KP', cur.q.Kp, 'V/A'], ['IQ_KI', cur.q.Ki, 'V/(A·s)'], ['IQ_KI_TS', cur.q.Ki * P.Ts, 'Ki·Ts'], ['IQ_B0', cur.q.b0, '增量式'], ['IQ_B1', cur.q.b1, '增量式'],
+      ['ID_KP_PU', cur.d.Kp * P.Ib / P.Vb, '标幺'], ['ID_KI_TS_PU', cur.d.Ki * P.Ts * P.Ib / P.Vb, '标幺'], ['IQ_KP_PU', cur.q.Kp * P.Ib / P.Vb, '标幺'], ['IQ_KI_TS_PU', cur.q.Ki * P.Ts * P.Ib / P.Vb, '标幺']]],
+    [`速度环 (fsc=${fmt(spd.fsc, 4)} Hz, PM=${fmt(spd.sw.pm, 3)}°)`, [
+      ['SPD_KP', spd.Kp, 'A/(rad/s) 机械'], ['SPD_KI', spd.Ki, 'A/rad'], ['SPD_KI_TS', spd.Ki * P.Tw, 'Ki·Tω'], ['SPD_B0', spd.b0, '增量式'], ['SPD_B1', spd.b1, '增量式'],
+      ['SPD_FILT_ALPHA', spd.alpha, '一阶IIR系数'], ['SPD_KP_PU', spd.Kp * P.wmb / P.Ib, '标幺'], ['SPD_KI_TS_PU', spd.Ki * P.Tw * P.wmb / P.Ib, '标幺']]],
+    [`位置环 (fpc=${fmt(pos.fpc, 4)} Hz)`, [
+      ['POS_KP', pos.Kpp, '1/s'], ['POS_KVFF', pos.vff, ''], ['POS_KAFF', pos.Kaff, 'A/(rad/s²)'], ['POS_KP_PU', pos.Kpp * TAU / P.wmb, '标幺']]],
+    ['观测器', [
+      ['PLL_KP', obs.pll.Kp, '1/s'], ['PLL_KI_TS', obs.pll.Ki * P.Ts, ''],
+      ['EMF_KP', obs.emf.Kp, 'Ω'], ['EMF_KI_TS', obs.emf.Ki * P.Ts, 'Ω'], ['EMF_TS_LQ', P.Ts / P.Lq, 'Ts/Lq'],
+      ['SMO_K', obs.smo.k, 'V'], ['SMO_LPF_ALPHA', obs.smo.alpha, ''],
+      ['TLOBS_L1_TS', obs.lo.l1 * P.Tw, ''], ['TLOBS_L2_TS', obs.lo.l2 * P.Tw, ''], ['TLOBS_KCOMP', obs.lo.Kcomp, 'A/(N·m)']]],
+  ];
+  let s = '';
+  if (expFmt === 'c') {
+    s = `/* PMSM 控制参数 — 由 PMSM 控制参数整定工具生成 (${now})\n * 单位: SI, 速度为机械 rad/s, 电流为相电流峰值 (等幅值变换)\n * 增量式 PI: u[k] = sat(u[k-1] + B0*e[k] + B1*e[k-1])\n */\n#ifndef PMSM_PARAMS_H\n#define PMSM_PARAMS_H\n\n`;
+    vals.forEach(([h, rows]) => { s += `/* ---- ${h} ---- */\n`; rows.forEach(([n, v, u]) => s += `#define ${n.padEnd(18)} (${f(v)}f)${u ? `   /* ${u} */` : ''}\n`); s += '\n'; });
+    s += `#endif /* PMSM_PARAMS_H */\n`;
+  } else if (expFmt === 'm') {
+    s = `%% PMSM 控制参数 — 由 PMSM 控制参数整定工具生成 (${now})\n% 可直接用于 Simulink: Discrete PID 块 (Parallel, ${DISC_NAME[P.disc]}) 填 Kp / Ki, Sample time 填对应 Ts\n\n`;
+    vals.forEach(([h, rows]) => { s += `%% ${h}\n`; rows.forEach(([n, v, u]) => s += `${n} = ${f(v)};${u ? ` % ${u}` : ''}\n`); s += '\n'; });
+    s += `%% 离散传递函数 (需 Control System Toolbox)\nz = tf('z', CTRL_TS);\nCd = (ID_B0 + ID_B1*z^-1)/(1 - z^-1);\nCq = (IQ_B0 + IQ_B1*z^-1)/(1 - z^-1);\nad = exp(-MOTOR_RS*CTRL_TS/MOTOR_LD); Gd = (1-ad)/MOTOR_RS*z^-1/(1-ad*z^-1) * z^-${P.Nd};\nLd_open = Cd*Gd;  % margin(Ld_open); step(feedback(Ld_open,1));\n`;
+  } else {
+    const o = {}; FIELDS.forEach(id => o[id] = $(id).value);
+    const res = {}; vals.forEach(([, rows]) => rows.forEach(([n, v]) => res[n] = +f(v)));
+    s = JSON.stringify({ inputs: o, results: res }, null, 2);
+  }
+  $('code').textContent = s;
+}
+
+/* ============ UI wiring ============ */
+const LOGS = [['fcc', 'fcc_r'], ['fsc', 'fsc_r'], ['fpc', 'fpc_r']];
+const LINS = [['Nz', 'Nz_r'], ['aSO', 'aSO_r'], ['vff', 'vff_r']];
+function syncSliders() {
+  LOGS.forEach(([n, r]) => { const v = parseFloat($(n).value); if (v > 0) $(r).value = Math.log10(v); });
+  LINS.forEach(([n, r]) => { $(r).value = $(n).value; });
+}
+function setType(t) {
+  $('motorType').value = t;
+  document.querySelectorAll('[data-type]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.type === t)));
+  $('Lq').disabled = t === 'spm';
+  if (t === 'spm') $('Lq').value = $('Ld').value;
+}
+function updFlux() {
+  const m = $('fluxMode').value;
+  const map = { psi: ['<b>ψf</b>永磁磁链 (峰值)', 'Wb'], ke: ['<b>Ke</b>反电势常数', 'Vrms/krpm'], kt: ['<b>Kt</b>转矩常数', 'N·m/A'] };
+  $('fluxLbl').innerHTML = map[m][0]; $('fluxUnit').textContent = map[m][1];
+}
+function updPlaceholders() {
+  const v = id => parseFloat($(id).value);
+  $('Vb').placeholder = fmt(v('Vdc') / Math.sqrt(3), 4); $('Ib').placeholder = $('Imax').value; $('nb').placeholder = $('nMax').value;
+}
+let raf = 0;
+function schedule() { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { updPlaceholders(); compute(); }); }
+function save() { try { const o = {}; FIELDS.forEach(id => o[id] = $(id).value); localStorage.setItem(STORE, JSON.stringify(o)); } catch (e) { } }
+function load() {
+  try { const o = JSON.parse(localStorage.getItem(STORE) || 'null'); if (o) FIELDS.forEach(id => { if (o[id] !== undefined) $(id).value = o[id]; }); } catch (e) { }
+}
+function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 1400); }
+function copyText(txt, el) {
+  const done = () => toast('已复制');
+  try { navigator.clipboard.writeText(txt).then(done, () => fallback()); } catch (e) { fallback(); }
+  function fallback() { if (el) { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast('已选中，请按 Ctrl+C 复制'); } }
+}
+
+function init() {
+  captureDefaults();
+  load();
+  setType($('motorType').value); updFlux(); syncSliders(); updPlaceholders();
+  document.querySelectorAll('[data-type]').forEach(b => b.addEventListener('click', () => { setType(b.dataset.type); schedule(); }));
+  $('Ld').addEventListener('input', () => { if ($('motorType').value === 'spm') $('Lq').value = $('Ld').value; });
+  $('fluxMode').addEventListener('change', () => {
+    // keep the same machine: convert the stored ψf into the newly selected unit
+    const psi = R ? R.P.psi : 0.09, m = $('fluxMode').value, p = Math.max(1, Math.round(parseFloat($('pp').value)));
+    const v = m === 'psi' ? psi : m === 'ke' ? psi * Math.sqrt(3) * p * 1000 * TAU / 60 / Math.SQRT2 : psi * 1.5 * p;
+    $('fluxVal').value = +v.toPrecision(5); updFlux(); schedule();
+  });
+  FIELDS.forEach(id => { const e = $(id); if (e && e.type !== 'hidden') e.addEventListener('input', () => { syncSliders(); schedule(); }); });
+  LOGS.forEach(([n, r]) => $(r).addEventListener('input', () => { $(n).value = +Math.pow(10, parseFloat($(r).value)).toPrecision(3); schedule(); }));
+  LINS.forEach(([n, r]) => $(r).addEventListener('input', () => { $(n).value = $(r).value; schedule(); }));
+  document.querySelectorAll('.tabs [data-tab]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabs [data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+    document.querySelectorAll('[data-pane]').forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
+    try { localStorage.setItem(STORE + '-tab', b.dataset.tab); } catch (e) { }
+    compute();
+  }));
+  document.querySelectorAll('#expSeg [data-fmt]').forEach(b => b.addEventListener('click', () => {
+    expFmt = b.dataset.fmt; document.querySelectorAll('#expSeg [data-fmt]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); renderExport();
+  }));
+  $('btnCopy').addEventListener('click', () => copyText($('code').textContent, $('code')));
+  document.addEventListener('click', e => { const b = e.target.closest('.cp'); if (b) copyText(b.dataset.v); });
+  $('btnReset').addEventListener('click', () => { FIELDS.forEach(id => $(id).value = DEFAULTS[id]); setType(DEFAULTS.motorType); updFlux(); syncSliders(); schedule(); toast('已恢复示例参数'); });
+  let typeset = false;
+  $('btnHelp').addEventListener('click', () => {
+    $('help').hidden = false; document.body.style.overflow = 'hidden'; $('btnHelpClose').focus();
+    if (!typeset && window.MathJax && MathJax.typesetPromise) { typeset = true; MathJax.typesetPromise([$('helpBody')]).catch(() => { typeset = false; }); }
+  });
+  const closeHelp = () => { $('help').hidden = true; document.body.style.overflow = ''; $('btnHelp').focus(); };
+  $('btnHelpClose').addEventListener('click', closeHelp);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('help').hidden) closeHelp(); });
+  $('help').querySelectorAll('nav a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); const t = document.querySelector(a.getAttribute('href')); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
+  try { const t = localStorage.getItem(STORE + '-tab'); if (t) { const b = document.querySelector(`.tabs [data-tab="${t}"]`); if (b) b.click(); } } catch (e) { }
+  let rw = 0; window.addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(compute, 150); });
+  compute();
+}
+init();
+</script>
+</body>
+</html>
