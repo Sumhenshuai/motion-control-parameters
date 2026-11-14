@@ -1,5 +1,5 @@
 /* Offline cache for the PMSM tuner. Bump VERSION whenever app files change. */
-const VERSION = 'pmsm-tuner-v2';
+const VERSION = 'pmsm-tuner-v3';
 const ASSETS = [
   './', './index.html', './manifest.webmanifest',
   './vendor/mathjax/tex-svg-full.js',
