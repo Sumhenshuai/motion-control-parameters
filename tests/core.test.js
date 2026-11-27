@@ -121,7 +121,7 @@ test('tolerance analysis: shunt-only tolerance gives exactly that gain error', (
 });
 
 test('PLL speed estimate: unity at low frequency, matches continuous model well below fs', () => {
-  const R = core.computeAll({});
+  const R = core.computeAll({ obsDyn: 'off' });
   const g = R.spd.pll, P = R.P;
   const lo = core.pllResp(P, g, TAU * 0.01);
   close(Math.hypot(lo.re, lo.im), 1, 1e-4, '|ω̂/ω| at 0.01 Hz');
@@ -193,6 +193,51 @@ test('coupled dq simulation: matches the single-axis model at zero speed; refere
   const Rf = core.computeAll({ simN: '3000', decoup: 'ref', curMethod: 'imc', fcc: '300', piImpl: 'inc', curStep: '2' });
   const yd = Rf.cur.d.sim.y, yq = Rf.cur.q.sim.y;
   assert.ok(Math.abs(yd[yd.length - 1]) < 0.02 && Math.abs(yq[yq.length - 1] - 2) < 0.02, 'settles to id = 0, iq = reference');
+});
+
+test('parameter identification round-trips the default motor and applies unit rules', () => {
+  const byId = Object.fromEntries(core.computeIdentify({}).map(r => [r.id, r.apply]));
+  close(byId.idR.Rs, 1.34, 1e-9, 'Rs from U-(V∥W) test');
+  close(byId.idL.Ld, 8.2, 1e-12, 'Ld = Lmin/2'); close(byId.idL.Lq, 11.23, 1e-12, 'Lq = Lmax/2');
+  close(byId.idE.psi * Math.sqrt(1.5), 0.086, 2e-4, 'ψa from back-EMF'); assert.equal(byId.idE.pp, 3);
+  close(byId.idJ.J, 3, 1e-3, 'J in kg·cm² from acceleration test');
+  // copper temperature correction and U–V connection
+  const r = Object.fromEntries(core.computeIdentify({ idRc: 'uv', idRV: '2.68', idRI: '1', idRTm: '75', idRTt: '25' }).map(x => [x.id, x.apply]));
+  close(r.idR.Rs, 1.34 * (234.5 + 25) / (234.5 + 75), 1e-9, 'Rs at 25 °C from a 75 °C measurement');
+  const st = Object.fromEntries(core.computeIdentify({ idLm: 'step', idTd: '5', idTq: '7', idLR: '2' }).map(x => [x.id, x.apply]));
+  close(st.idL.Ld, 10, 1e-12, 'Ld = τd·Rs (mH)'); close(st.idL.Lq, 14, 1e-12, 'Lq = τq·Rs (mH)');
+  for (const mode of ['psi', 'psia', 'ke', 'kt']) {
+    const v = core.psiToField(0.07, mode, 3);
+    const R = core.computeAll({ fluxMode: mode, fluxVal: String(v) });
+    close(R.P.psi, 0.07, 1e-9, `flux field conversion (${mode})`);
+  }
+});
+
+test('design checklist is sorted by severity and reports invalid inputs', () => {
+  const ch = core.designChecks({});
+  const rank = { bad: 0, warn: 1, ok: 2 };
+  for (let i = 1; i < ch.length; i++) assert.ok(rank[ch[i - 1].level] <= rank[ch[i].level]);
+  assert.ok(ch.some(c => c.area === '电流环') && ch.some(c => c.area === '速度环') && ch.some(c => c.area === '运行点'));
+  const bad = core.designChecks({ Rs: '0' });
+  assert.equal(bad[0].level, 'bad');
+});
+
+test('back-EMF observer dynamics in the PLL path match the continuous model', () => {
+  const R = core.computeAll({});
+  const h = core.pllResp(R.P, R.spd.pll, TAU * 0.01);
+  close(Math.hypot(h.re, h.im), 1, 1e-4, 'low-frequency gain');
+  // continuous reference with the observer in the PLL path: ω̂/ω = C·H / (s + C·H), C = Kp + Ki/s, H = (Kpo·s + Kio)/(Lq·s² + (Rs+Kpo)·s + Kio)
+  const Rs = core.computeAll({ femf: '15' }), P = Rs.P, g = Rs.spd.pll;
+  const cm = (a, b) => ({ re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re }), cd = (a, b) => { const q = b.re * b.re + b.im * b.im; return { re: (a.re * b.re + a.im * b.im) / q, im: (a.im * b.re - a.re * b.im) / q }; };
+  const wo = TAU * 15, Kpo = 2 * wo * P.Lq - P.Rs, Kio = wo * wo * P.Lq;
+  for (const f of [1, 5, 10, 15]) {   // below the lightly damped PLL–observer peak (~30 Hz), where discretisation differences are amplified
+    const w = TAU * f, s = { re: 0, im: w };
+    const Cc = { re: g.Kp, im: -g.Ki / w }, H = cd({ re: Kio, im: Kpo * w }, { re: Kio - P.Lq * w * w, im: (P.Rs + Kpo) * w });
+    const CH = cm(Cc, H), ref = cd(CH, { re: s.re + CH.re, im: s.im + CH.im });
+    const got = core.pllResp(P, g, w);
+    close(Math.hypot(got.re, got.im), Math.hypot(ref.re, ref.im), 0.02, `|ω̂/ω| at ${f} Hz`);
+    assert.ok(Math.abs(Math.atan2(got.im, got.re) - Math.atan2(ref.im, ref.re)) < 0.03, `phase at ${f} Hz`);
+  }
 });
 
 test('NTC divider (B model)', () => {
