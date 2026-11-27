@@ -1,0 +1,150 @@
+{
+ "defaults": {
+  "inputs": {},
+  "values": {
+   "curKp": 1.4824068,
+   "curKiTs": 0.03546741,
+   "curPM": 87.97788,
+   "curBW": 22.289914,
+   "curOS": 0,
+   "spdKp": 0.023861392,
+   "spdKi": 0.14992555,
+   "spdPM": 62.25094,
+   "spdFc": 4.0577471,
+   "spdOS": 16.135243,
+   "spdDip": 2308.9509,
+   "posPM": 88.243836,
+   "pllKp": 314.15927,
+   "emfKp": 33.940085,
+   "loL2": 29.608813,
+   "hwGVA": 0.090497738,
+   "hwVoff": 2.5,
+   "hwKv": 100.6,
+   "hwTlsb": 0.048840049,
+   "hwCnt": 8000
+  }
+ },
+ "incremental": {
+  "inputs": {
+   "piImpl": "inc"
+  },
+  "values": {
+   "curKp": 1.4824068,
+   "curKiTs": 0.03546741,
+   "curPM": 87.97788,
+   "curBW": 22.289914,
+   "curOS": 0,
+   "spdKp": 0.023861392,
+   "spdKi": 0.14992555,
+   "spdPM": 62.905446,
+   "spdFc": 4.0578461,
+   "spdOS": 15.910631,
+   "spdDip": 2295.221,
+   "posPM": 88.154418,
+   "pllKp": 314.15927,
+   "emfKp": 33.940085,
+   "loL2": 29.608813,
+   "hwGVA": 0.090497738,
+   "hwVoff": 2.5,
+   "hwKv": 100.6,
+   "hwTlsb": 0.048840049,
+   "hwCnt": 8000
+  }
+ },
+ "imc_bw": {
+  "inputs": {
+   "curMethod": "imc",
+   "fcc": "300",
+   "spdMethod": "bw",
+   "fsc": "30",
+   "piImpl": "inc",
+   "disc": "tu"
+  },
+  "values": {
+   "curKp": 21.168051,
+   "curKiTs": 0.5051681,
+   "curPM": 57.405948,
+   "curBW": 752.7233,
+   "curOS": 8.5787483,
+   "spdKp": 0.17896044,
+   "spdKi": 8.4333121,
+   "spdPM": 47.87709,
+   "spdFc": 29.639743,
+   "spdOS": 27.658424,
+   "spdDip": 359.12009,
+   "posPM": 90.105517,
+   "pllKp": 314.15927,
+   "emfKp": 33.940085,
+   "loL2": 29.608813,
+   "hwGVA": 0.090497738,
+   "hwVoff": 2.5,
+   "hwKv": 100.6,
+   "hwTlsb": 0.048840049,
+   "hwCnt": 8000
+  }
+ },
+ "spm_alt_hw": {
+  "inputs": {
+   "curMethod": "zd",
+   "fcc": "400",
+   "spdMethod": "so",
+   "tf": "amp",
+   "motorType": "spm",
+   "Lq": "8.2",
+   "isnTopo": "isnN",
+   "vdcTopo": "vdcF",
+   "ocTopo": "ocW",
+   "tmpTopo": "tmpL"
+  },
+  "values": {
+   "curKp": 15.934915,
+   "curKiTs": 0.52940377,
+   "curPM": 55.820432,
+   "curBW": 792.35358,
+   "curOS": 11.20512,
+   "spdKp": 0.13232908,
+   "spdKi": 7.6849924,
+   "spdPM": 43.193646,
+   "spdFc": 23.712014,
+   "spdOS": 34.427716,
+   "spdDip": 440.13778,
+   "posPM": 90.186092,
+   "pllKp": 314.15927,
+   "emfKp": 24.42106,
+   "loL2": 29.608813,
+   "hwGVA": 0.090909091,
+   "hwVoff": 2.2727273,
+   "hwKv": 100,
+   "hwTlsb": 0.14122395,
+   "hwCnt": 8000
+  }
+ },
+ "fractional": {
+  "inputs": {
+   "nd": "0.5",
+   "fcc": "150"
+  },
+  "values": {
+   "curKp": 19.828051,
+   "curKiTs": 1.9950418,
+   "curPM": 57.944897,
+   "curBW": 556.51357,
+   "curOS": 14.813729,
+   "spdKp": 0.023861392,
+   "spdKi": 0.14992555,
+   "spdPM": 73.105783,
+   "spdFc": 4.1262977,
+   "spdOS": 13.133925,
+   "spdDip": 2106.7403,
+   "posPM": 88.173226,
+   "pllKp": 314.15927,
+   "emfKp": 33.940085,
+   "loL2": 29.608813,
+   "hwGVA": 0.090497738,
+   "hwVoff": 2.5,
+   "hwKv": 100.6,
+   "hwTlsb": 0.048840049,
+   "hwCnt": 8000
+  }
+ }
+}
