@@ -220,6 +220,23 @@ table.g tr.worst td{background:var(--bad-soft)}
   body[data-view="params"] .main{display:none}
   .wrap{padding-bottom:calc(70px + env(safe-area-inset-bottom,0px))}
 }
+
+.repbody{overflow:auto;padding-block:20px 60px;padding-left:max(24px,env(safe-area-inset-left,0px));padding-right:max(24px,env(safe-area-inset-right,0px))}
+.repbody>section{max-width:980px;margin:0 auto 22px}
+.repbody h3{font-size:17px;margin:0 0 8px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.repbody .kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px 18px;font-size:13px}
+.repbody .kv div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dotted var(--line-2)}
+.repbody .kv b{font-weight:500;color:var(--muted)}
+.repbody .kv span{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.repbody .charts{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media print{
+  body>*:not(#report){display:none!important}
+  #report{position:static!important;display:block!important;background:#fff;color:#000}
+  #report .hbar{display:none}
+  .repbody{overflow:visible;padding:0}
+  .repbody>section{break-inside:avoid-page}
+  .plot svg{max-width:100%}
+}
 pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:12px;overflow:auto;font:12px/1.55 var(--f-mono);margin:0;max-height:520px;white-space:pre}
 .codebar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
 .codebar .sp{flex:1}
@@ -261,6 +278,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
     <span class="sub">电流环 · 速度环 · 位置环 · 观测器 — 按离散采样系统 (z 域) 设计与校核</span>
   </div>
   <div class="sp"></div>
+  <button class="btn" id="btnReport" type="button">报告</button>
   <button class="btn" id="btnReset" type="button">恢复示例参数</button>
   <button class="btn primary" id="btnHelp" type="button">帮助 / 公式</button>
 </header>
@@ -402,6 +420,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <button role="tab" aria-selected="false" data-tab="spd">速度环</button>
       <button role="tab" aria-selected="false" data-tab="pos">位置环</button>
       <button role="tab" aria-selected="false" data-tab="obs">观测器</button>
+      <button role="tab" aria-selected="false" data-tab="op">运行点 / 弱磁</button>
       <button role="tab" aria-selected="false" data-tab="hw">硬件换算</button>
       <button role="tab" aria-selected="false" data-tab="exp">导入 / 导出</button>
     </div>
@@ -427,6 +446,13 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
             <span class="hint" id="tuneCHint"></span></div>
           <div class="knob"><label for="curStep">阶跃仿真幅值</label>
             <div class="row"><div class="inp" style="width:100%"><input id="curStep" type="number" step="any" value="4"><span class="u">A</span></div></div></div>
+          <div class="knob"><label for="simN">仿真转速 / 解耦前馈</label>
+            <div class="row"><div class="inp"><input id="simN" type="number" step="any"><span class="u">rpm</span></div><div class="inp" style="width:auto;flex:1"><select id="decoup">
+              <option value="ref">指令电流前馈 (本固件)</option>
+              <option value="meas">实测电流前馈</option>
+              <option value="off">不解耦</option>
+            </select></div></div>
+            <span class="hint">转速 &gt; 0 时按 dq 耦合模型仿真 iq 阶跃，id 指令为 0，可看到交叉耦合引起的 id 偏离。</span></div>
         </div>
       </div>
       <div class="two">
@@ -538,6 +564,24 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       </div>
     </div>
 
+    <!-- operating point -->
+    <div class="pane" data-pane="op" hidden>
+      <div class="card">
+        <h3>运行点与弱磁 <span class="sub">稳态 dq 方程，受电流上限 Imax 与可用电压限制（取“硬件换算”中低边采样占空比限制后的电压）</span></h3>
+        <div class="tune">
+          <div class="knob"><label for="opN">工作点转速</label><div class="row"><div class="inp" style="width:100%"><input id="opN" type="number" step="any"><span class="u">rpm</span></div></div></div>
+          <div class="knob"><label for="opT">工作点转矩</label><div class="row"><div class="inp" style="width:100%"><input id="opT" type="number" step="any"><span class="u">N·m</span></div></div></div>
+          <div class="knob"><span class="klabel">说明</span><span class="hint">留空 = 额定转速 / 额定转矩。工作点取满足转矩的最小电流解；电流角大于 MTPA 角即需要弱磁。</span></div>
+        </div>
+      </div>
+      <div class="card"><div class="metrics" id="opMet"></div><div class="notes" id="opNotes"></div></div>
+      <div class="two">
+        <div class="card"><h3>工作点</h3><div class="tblwrap"><table class="g" id="opTbl"></table></div></div>
+        <div class="card"><div class="chart"><div class="ct"><b>id–iq 平面</b><span class="lg"><i style="border-color:var(--ink)"></i>电流极限圆</span><span class="lg"><i style="border-color:var(--ch1)"></i>MTPA</span><span class="lg"><i class="d" style="border-color:var(--ch2)"></i>电压极限 (工作点/额定/最高转速)</span><span class="lg"><i class="d" style="border-color:var(--ch3)"></i>等转矩</span></div><div class="plot" id="opPlane"></div></div></div>
+      </div>
+      <div class="card"><div class="chart"><div class="ct"><b>转矩–转速包络</b><span class="lg"><i style="border-color:var(--ch1)"></i>允许弱磁</span><span class="lg"><i style="border-color:var(--ch2)"></i>仅 MTPA (不弱磁)</span><span class="lg"><i style="border-color:var(--ch3)"></i>弱磁功率 (右轴 W)</span><span class="lg"><i class="d" style="border-color:var(--ref)"></i>额定转矩 / 最高转速</span></div><div class="plot" id="opEnv"></div></div></div>
+    </div>
+
     <!-- hardware -->
     <div class="pane" data-pane="hw" hidden>
       <div class="card">
@@ -590,6 +634,12 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
   </main>
 </div>
 
+<!-- ================= REPORT ================= -->
+<div class="help" id="report" hidden role="dialog" aria-modal="true" aria-label="设计报告">
+  <div class="hbar"><h2>设计报告</h2><span class="hint" id="repHint">可直接打印，或在打印对话框中选择“另存为 PDF”</span><div style="flex:1"></div><button class="btn primary" id="btnPrint" type="button">打印 / 存为 PDF</button><button class="btn" id="btnReportClose" type="button">关闭</button></div>
+  <article class="repbody" id="repBody"></article>
+</div>
+
 <!-- ================= HELP ================= -->
 <div class="help" id="help" hidden role="dialog" aria-modal="true" aria-label="帮助">
   <div class="hbar"><h2>控制原理与公式</h2><span class="hint">公式由 MathJax 渲染，离线时显示 TeX 源码</span><div style="flex:1"></div><button class="btn" id="btnHelpClose" type="button">关闭</button></div>
@@ -610,6 +660,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <a href="#h-tol">13. 容差与最坏情况</a>
       <a href="#h-imp">14. 导入与对比</a>
       <a href="#h-tune">15. 自动整定与失配</a>
+      <a href="#h-op">16. 运行点与弱磁</a>
     </nav>
     <article id="helpBody">
       <section id="h-arch">
@@ -726,7 +777,11 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <p>让离散 PI 的零点精确落在对象极点 \(z = a\) 上：\(b_1 = -a\,b_0\)。开环变为</p>
         <div class="eq">\[ L(z) = \frac{K}{z^{N_d}(z-1)},\qquad K = b\,b_0 \]</div>
         <p>\(N_d = 1\) 时闭环特征方程 \(z^2 - z + K = 0\)：\(K < 1\) 稳定，\(K \le 0.25\) 为实极点（无超调）。工具取 \(K = 1 - e^{-\omega_{cc}T_s}\)，即 \(b_0 = K/b\)，\(b_1 = -a\,b_0\)。小 \(T_s\) 时它与 IMC 结果一致；带宽很高时它更准确，因为对消的是精确的离散极点。</p>
-        <h4>4.4 电压限幅与抗饱和</h4>
+        <h4>4.4 高速时的 dq 交叉耦合</h4>
+        <p>转速升高后 d、q 轴通过 \(\omega_e L\) 项互相耦合。本固件的解耦前馈用指令电流并含电阻项：</p>
+        <div class="eq">\[ u_d^{ff} = R_s i_d^* - \omega_e L_q i_q^*,\qquad u_q^{ff} = R_s i_q^* + \omega_e(L_d i_d^* + \psi_f) \]</div>
+        <p>稳态下它与对象完全抵消，但 iq 阶跃时实际电流滞后于指令，d 轴会多出约 \(\omega_e L_q (i_q^* - i_q)\) 的未补偿电压，使 id 偏离 0；电流环越慢、转速越高，偏离越大。另外控制延时使施加的电压矢量相对转子转过 \(\omega_e T_d\)，载波比低时这一转角不可忽略。电流环页的“仿真转速”大于 0 时，工具按完整的 dq 耦合模型（RK4 积分、d 轴优先电压限幅）仿真 iq 阶跃，并可对比指令前馈、实测前馈和不解耦三种情况。</p>
+        <h4>4.5 电压限幅与抗饱和</h4>
         <p>SVPWM 线性区 \(\sqrt{u_d^2+u_q^2} \le U_{dc}/\sqrt3\)。增量式 PI 对输出直接限幅即可天然抗积分饱和；位置式需在饱和时停止积分（clamping）或反算 \(I \mathrel{+}= K_{aw}(u_{sat} - u)\)，常取 \(K_{aw} \approx 1/K_p\cdot K_i\)。</p>
       </section>
 
@@ -871,6 +926,20 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <p><b>参数失配</b>：控制器按标称参数设计后保持不变，被控对象取 \(L\times(1\pm\Delta L)\)、\(R\times[R_{min}, R_{max}]\)、\(J\times[J_{min}, J_{max}]\)、\(K_t\times(1\pm\Delta K_t)\) 的全部组合，表中按相位裕度从低到高排列，第一行为最差组合。瑞萨固件公式中 \(K_p\propto J\)，实际惯量小于设定值时开环增益升高、穿越频率右移，最差相位裕度通常出现在 \(J\) 最小、\(K_t\) 最大处。</p>
       </section>
 
+      <section id="h-op">
+        <h3>16. 运行点与弱磁</h3>
+        <p>按稳态 dq 方程（等幅值、相峰值）计算，电流角 \(\gamma\) 自 q 轴转向 −d 轴：\(i_d = -I_s\sin\gamma\)，\(i_q = I_s\cos\gamma\)。</p>
+        <div class="eq">\[ u_d = R_si_d - \omega_eL_qi_q,\quad u_q = R_si_q + \omega_e(L_di_d + \psi_f),\quad |u| \le U_{lim},\quad I_s \le I_{max} \]</div>
+        <p>\(U_{lim}\) 取“硬件换算”中低边采样占空比限制后的可用相电压（不超过 \(U_{dc}/\sqrt3\)）。</p>
+        <table>
+          <tr><th>结果</th><th>算法</th></tr>
+          <tr><td>工作点</td><td>在 \(0 \le \gamma < 90^\circ\)（0.05° 步长）上对每个角度由 \(T_e = 1.5p[\psi_f I_s\cos\gamma + (L_q-L_d)I_s^2\sin\gamma\cos\gamma]\) 解出 \(I_s\)，保留满足电压、电流限制的最小 \(I_s\)。\(\gamma\) 大于 MTPA 角即处于弱磁区。</td></tr>
+          <tr><td>最大转矩（允许弱磁）</td><td>对每个电流角，\(|u|^2\) 是 \(I_s\) 的二次式，解析求出电压允许的最大 \(I_s\)，再与 \(I_{max}\) 取小，取转矩最大的角度。</td></tr>
+          <tr><td>最大转矩（仅 MTPA）</td><td>沿 MTPA 轨迹增大电流，直到电压或电流到达极限（二分法）。本固件关闭弱磁，实际能力以此为准。</td></tr>
+          <tr><td>效率、功率因数</td><td>只计铜耗 \(1.5R_sI_s^2\)，不含铁耗、开关损耗和机械损耗，是上限估计。</td></tr>
+        </table>
+        <p>id–iq 平面中电压极限椭圆按忽略电阻绘制：\((L_di_d + \psi_f)^2 + (L_qi_q)^2 = (U_{lim}/\omega_e)^2\)；数值结果包含电阻。</p>
+      </section>
     </article>
   </div>
 </div>
@@ -1133,14 +1202,19 @@ function renderCurrent() {
     metric('GM d / q', `${fmt(d.sw.gm, 3)} / ${fmt(q.sw.gm, 3)} dB`, Math.min(d.sw.gm, q.sw.gm) >= 6 ? 'ok' : Math.min(d.sw.gm, q.sw.gm) >= 3 ? 'warn' : 'bad', bm(b => `${fmt(b.d.sw.gm, 3)} / ${fmt(b.q.sw.gm, 3)} dB`)) +
     metric('穿越频率', fmtHz(q.sw.fc), '', bm(b => fmtHz(b.q.sw.fc))) +
     metric('闭环 −3dB', fmtHz(q.sw.bw), '', bm(b => fmtHz(b.q.sw.bw))) +
-    metric('超调 d / q', `${fmt(d.met.os, 3)}% / ${fmt(q.met.os, 3)}%`, Math.max(d.met.os, q.met.os) < 5 ? 'ok' : Math.max(d.met.os, q.met.os) < 20 ? 'warn' : 'bad', bm(b => `${fmt(b.d.met.os, 3)}% / ${fmt(b.q.met.os, 3)}%`)) +
+    (cur.coupled
+      ? metric('iq 超调 (耦合)', fmt(q.met.os, 3) + '%', q.met.os < 10 ? 'ok' : q.met.os < 30 ? 'warn' : 'bad', bm(b => fmt(b.q.met.os, 3) + '%')) +
+        metric('id 最大偏离', fmt(cur.coupled.idDev, 3) + ' A', cur.coupled.idDev < 0.1 * q.sim.amp ? 'ok' : cur.coupled.idDev < 0.3 * q.sim.amp ? 'warn' : 'bad', bm(b => b.coupled ? fmt(b.coupled.idDev, 3) + ' A' : '—')) +
+        metric('延时转角 ωe·Td', fmt(cur.coupled.rot, 3) + '°')
+      : metric('超调 d / q', `${fmt(d.met.os, 3)}% / ${fmt(q.met.os, 3)}%`, Math.max(d.met.os, q.met.os) < 5 ? 'ok' : Math.max(d.met.os, q.met.os) < 20 ? 'warn' : 'bad', bm(b => `${fmt(b.d.met.os, 3)}% / ${fmt(b.q.met.os, 3)}%`))) +
     metric('上升时间 q', fmtT(q.met.tr), '', bm(b => fmtT(b.q.met.tr))) +
     metric('闭环 max|z|', fmt(Math.max(d.rmax, q.rmax), 4), Math.max(d.rmax, q.rmax) < 1 ? 'ok' : 'bad', bm(b => fmt(Math.max(b.d.rmax, b.q.rmax), 4)));
   zplane($('curZ'), [{ p: d.poles, c: 'var(--ch1)', name: 'd 轴闭环' }, { p: q.poles, c: 'var(--ch2)', name: 'q 轴闭环' }, ...(B ? [{ p: B.q.poles, c: 'var(--ref)', name: '基准 q 轴', ring: true }] : [])]);
   bode($('curBode'), [{ sw: d.sw, c: 'var(--ch1)', n: 'd 轴' }, { sw: q.sw, c: 'var(--ch2)', n: 'q 轴' }, ...(B ? [{ sw: B.q.sw, c: 'var(--ch2)', ...BASE_STYLE, n: '基准 q' }] : [])], { vlines: [{ v: cur.fcc, c: 'var(--accent)', label: 'fcc' }] });
   const el = $('curStepP'), tEnd = Math.max(d.sim.t[d.sim.t.length - 1], B ? B.d.sim.t[B.d.sim.t.length - 1] : 0);
+  el.previousElementSibling.querySelector('b').textContent = cur.coupled ? `iq 阶跃，${fmt(cur.coupled.n, 4)} rpm，dq 耦合 (${{ ref: '指令电流前馈', meas: '实测电流前馈', off: '不解耦' }[cur.coupled.ff]})` : '阶跃响应 (采样控制器 + 连续对象)';
   el.innerHTML = plotSVG(el, { xmin: 0, xmax: tEnd, xscale: 1000, xlabel: '时间 ms', ylabel: '电流 A', h: 340,
-    series: [{ x: [0, tEnd], y: [d.sim.amp, d.sim.amp], c: 'var(--ref)', dash: '2 3', w: 1.1 }, { x: d.sim.t, y: d.sim.y, c: 'var(--ch1)', n: 'id A' }, { x: q.sim.t, y: q.sim.y, c: 'var(--ch2)', n: 'iq A' },
+    series: [{ x: [0, tEnd], y: [q.sim.amp, q.sim.amp], c: 'var(--ref)', dash: '2 3', w: 1.1 }, { x: d.sim.t, y: d.sim.y, c: 'var(--ch1)', n: cur.coupled ? 'id A (指令 0)' : 'id A' }, { x: q.sim.t, y: q.sim.y, c: 'var(--ch2)', n: 'iq A' },
       ...(B ? [{ x: B.q.sim.t, y: B.q.sim.y, c: 'var(--ch2)', ...BASE_STYLE, n: '基准 iq A' }] : [])], aria: '电流阶跃响应' });
 }
 
@@ -1242,7 +1316,9 @@ let anaTimer = 0;
 const activeTab = () => { const b = document.querySelector('.tabs [aria-selected="true"]'); return b ? b.dataset.tab : 'cur'; };
 function scheduleAnalysis() { clearTimeout(anaTimer); anaTimer = setTimeout(runAnalysis, 150); }
 function runAnalysis() {
-  const tab = activeTab(); if ((tab !== 'cur' && tab !== 'spd') || !R || R.bad) return;
+  const tab = activeTab();
+  if (tab === 'op' && R && !R.bad) { renderOperating(); return; }
+  if ((tab !== 'cur' && tab !== 'spd') || !R || R.bad) return;
   const inp = readInputs(), key = JSON.stringify(inp);
   if (ANA_KEY[tab] === key) return;
   ANA_KEY[tab] = key;
@@ -1290,7 +1366,7 @@ function doTune(loop) {
 }
 
 /* ============ INPUT VALIDATION ============ */
-const OPTIONAL = new Set(['Vb', 'Ib', 'nb', 'ilimC', 'ilimS']);
+const OPTIONAL = new Set(['Vb', 'Ib', 'nb', 'ilimC', 'ilimS', 'opN', 'opT', 'simN']);
 const BAD_FIELD = { Rs: 'Rs', Ld: 'Ld', Lq: 'Lq', 'ψf': 'fluxVal', J: 'Jm', Irated: 'Irated', Imax: 'Imax', Udc: 'Vdc', fpwm: 'fsw', nmax: 'nMax' };
 function markInvalid(bad) {
   const badIds = new Set((bad || []).map(n => BAD_FIELD[n]).filter(Boolean));
@@ -1354,12 +1430,97 @@ async function importSchemes(file) {
   } catch (e) { toast('导入失败：' + e.message); }
 }
 
+/* ============ OPERATING POINT TAB ============ */
+let OP_KEY = null, OPR = null;
+function runOperating(force) {
+  const inp = readInputs(), key = JSON.stringify(inp);
+  if (!force && OP_KEY === key && OPR) return OPR;
+  OP_KEY = key; OPR = computeOperating(inp);
+  return OPR;
+}
+function renderOperating() {
+  const o = runOperating(); if (!o) return;
+  const P = R.P, op = o.op, fmtN = n => !isFinite(n) ? '无上限' : fmt(n, 4) + ' rpm';
+  $('opN').placeholder = String(P.nN); $('opT').placeholder = fmt(P.TN, 4);
+  $('opMet').innerHTML =
+    metric('工作点', op ? (op.fw ? '可行 · 需弱磁' : '可行 · MTPA') : '不可行', op ? (op.fw ? 'warn' : 'ok') : 'bad') +
+    metric('电压利用率', op ? fmt(op.util * 100, 3) + '%' : '—', op ? (op.util < 0.9 ? 'ok' : 'warn') : '') +
+    metric('该转速最大转矩', `${fmt(o.TmaxOpFw, 3)} / ${fmt(o.TmaxOpMtpa, 3)} N·m`) +
+    metric('额定转矩最高转速', `${fmtN(o.nRatedMtpa)} / ${fmtN(o.nRatedFw)}`, o.nRatedMtpa >= P.nMax ? 'ok' : 'warn') +
+    metric('恒转矩区上限 (Imax)', fmtN(o.nBaseMax)) +
+    metric('可用相电压 / 电流上限', `${fmt(o.Vlim, 4)} V / ${fmt(o.Imax, 3)} A`);
+  const N = [];
+  N.push(['ok', `“该转速最大转矩”与“额定转矩最高转速”均按 允许弱磁 / 仅 MTPA 给出。本固件 SPEED_CFG_FLUX_WEAKENING 为关闭，实际能力以“仅 MTPA”为准。`]);
+  if (o.nRatedMtpa < P.nMax) N.push(['warn', `不弱磁时额定转矩只能维持到 ${fmtN(o.nRatedMtpa)}，低于最高转速 ${fmt(P.nMax, 4)} rpm：高速重载会电压饱和，需要开启弱磁或降低高速转矩。`]);
+  else N.push(['ok', `不弱磁即可在最高转速 ${fmt(P.nMax, 4)} rpm 输出额定转矩（裕量到 ${fmtN(o.nRatedMtpa)}）。`]);
+  if (!op) N.push(['bad', `工作点 ${fmt(o.nOp, 4)} rpm / ${fmt(o.TOp, 4)} N·m 超出电流或电压能力。该转速最大转矩：允许弱磁 ${fmt(o.TmaxOpFw, 3)} N·m，仅 MTPA ${fmt(o.TmaxOpMtpa, 3)} N·m。`]);
+  if (!o.fwPossible) N.push(['warn', `特征电流 ψf/Ld = ${fmt(P.psi / P.Ld, 4)} A 大于 Imax，弱磁转速有上限。`]);
+  $('opNotes').innerHTML = N.map(([c, t]) => `<div class="note ${c}">${t}</div>`).join('');
+  const rr = (n, sym, v, u) => `<tr><td>${n}</td><td class="s">${sym}</td><td class="v">${fmt(v, 5)}${cpBtn(fmt(v, 7))}</td><td class="u">${u}</td></tr>`;
+  $('opTbl').innerHTML = !op ? '<tr><td class="hint">工作点不可行，见上方提示。</td></tr>' :
+    '<tr><th>量</th><th>符号</th><th style="text-align:right">数值</th><th>单位</th></tr>' +
+    rr('转速 / 转矩', 'n, T', o.nOp, 'rpm') + rr('转矩', 'T', o.TOp, 'N·m') +
+    rr('电流幅值 (峰值)', 'Is', op.Is, 'A') + rr('相电流有效值', 'Is/√2', op.Irms, 'A') +
+    rr('d 轴电流', 'id', op.id, 'A') + rr('q 轴电流', 'iq', op.iq, 'A') +
+    rr('电流角 (自 q 轴)', 'γ', op.gamma, '°') + rr('MTPA 电流角', 'γMTPA', op.gammaMtpa, '°') +
+    rr('d 轴电压', 'ud', op.ud, 'V') + rr('q 轴电压', 'uq', op.uq, 'V') + rr('电压幅值', '|u|', op.u, 'V') +
+    rr('电压利用率', '|u| / Ulim', op.util * 100, '%') + rr('输出功率', 'T·ωm', op.Pout, 'W') +
+    rr('铜耗', '1.5·Rs·Is²', op.Pcu, 'W') + rr('电磁效率 (仅铜耗)', 'Pout/Pin', op.eff * 100, '%') + rr('功率因数', 'Pin/(1.5·|u|·Is)', op.pf, '—');
+  // id–iq plane
+  const pl = o.plane, el = $('opPlane'), I = o.Imax;
+  const ser = [{ x: pl.circle.map(p => p[0]), y: pl.circle.map(p => p[1]), c: 'var(--ink)', w: 1.3 }, { x: pl.mtpa.map(p => p[0]), y: pl.mtpa.map(p => p[1]), c: 'var(--ch1)' }];
+  pl.ellipses.forEach((e, i) => ser.push({ x: e.pts.map(p => p[0]), y: e.pts.map(p => p[1]), c: 'var(--ch2)', dash: ['6 3', '3 3', '1 3'][i], w: 1.4 }));
+  if (pl.torque.length) ser.push({ x: pl.torque.map(p => p[0]), y: pl.torque.map(p => p[1]), c: 'var(--ch3)', dash: '4 3', w: 1.3 });
+  el.innerHTML = plotSVG(el, { xmin: -1.25 * I, xmax: 0.15 * I, ymin: 0, ymax: 1.15 * I, xlabel: 'id A', ylabel: 'iq A', h: 330, series: ser,
+    points: op ? [{ x: op.id, y: op.iq, c: 'var(--bad)' }] : [], aria: 'id–iq 平面' });
+  // torque–speed envelope
+  const env = o.env, e2 = $('opEnv');
+  e2.innerHTML = plotSVG(e2, { xmin: 0, xmax: env.n[env.n.length - 1], xlabel: '转速 rpm', ylabel: '转矩 N·m', h: 300, r2: true,
+    series: [{ x: env.n, y: env.Tfw, c: 'var(--ch1)', n: '允许弱磁 N·m' }, { x: env.n, y: env.Tmtpa, c: 'var(--ch2)', n: '仅 MTPA N·m' }, { x: env.n, y: env.Pfw, c: 'var(--ch3)', y2: true, w: 1.1, n: '弱磁功率 W' }],
+    hlines: [{ v: P.TN, c: 'var(--ref)', dash: '4 3' }], vlines: [{ v: P.nMax, c: 'var(--ref)', label: 'nmax' }],
+    points: op ? [{ x: o.nOp, y: o.TOp, c: 'var(--bad)' }] : [], ymin: 0, ymax: Math.max(...env.Tfw, P.TN, o.TOp) * 1.12, aria: '转矩转速包络' });
+}
+
+/* ============ REPORT ============ */
+function buildReport() {
+  if (!R || R.bad) { toast('参数无效，无法生成报告'); return; }
+  const P = R.P, o = runOperating(), kv = rows => `<div class="kv">${rows.map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join('')}</div>`;
+  const sec = (t, body) => `<section><h3>${t}</h3>${body}</section>`;
+  const f = (x, u = '') => `${fmt(x, 5)}${u ? ' ' + u : ''}`;
+  const lbl = id => fieldLabel(id).replace(/\s+/g, ' ');
+  const opt = id => { const el = $(id); return el && el.selectedIndex >= 0 ? el.options[el.selectedIndex].text : R.I[id]; };
+  const hwRows = id => (R.hw.out[id] || []).filter(r => r[4] || /增益|零电流码值|分压比|动作电流|分辨率|最坏/.test(r[0])).slice(0, 12).map(r => [r[0], isFinite(r[2]) ? f(r[2], r[3]) : '']);
+  const snap = id => { const el = $(id); return el && el.innerHTML ? `<div class="chart"><div class="plot">${el.innerHTML}</div></div>` : ''; };
+  const html = [
+    sec('概要', kv([['生成时间', new Date().toLocaleString()], ['对比基准', BASE ? BASE.name : '无'], ['电机类型', P.type === 'ipm' ? 'IPMSM' : 'SPMSM'], ['坐标变换', P.tf === 'pow' ? '等功率 (瑞萨)' : '等幅值'],
+      ['PI 实现', opt('piImpl')], ['速度反馈', opt('spdSrc')], ['电流环方法', opt('curMethod')], ['速度环方法', opt('spdMethod')]]) +
+      `<div class="notes">${$('notes').innerHTML}</div>`),
+    sec('电机与控制器参数', kv(['Rs', 'Ld', 'Lq', 'pp', 'fluxVal', 'Jm', 'JL', 'Irated', 'Imax', 'nRated', 'nMax', 'Vdc', 'fsw', 'nd', 'Nw', 'ff'].map(id => [lbl(id), R.I[id]]))),
+    sec('电流环', kv([['Kp d / q', `${fmt(R.cur.d.Kp, 5)} / ${fmt(R.cur.q.Kp, 5)} V/A`], ['Ki·Ts d / q', `${fmt(R.cur.d.Ki * P.Ts, 5)} / ${fmt(R.cur.q.Ki * P.Ts, 5)}`],
+      ['相位裕度 d / q', `${fmt(R.cur.d.sw.pm, 4)}° / ${fmt(R.cur.q.sw.pm, 4)}°`], ['增益裕度 q', f(R.cur.q.sw.gm, 'dB')], ['闭环带宽 q', fmtHz(R.cur.q.sw.bw)], ['闭环 max|z|', fmt(Math.max(R.cur.d.rmax, R.cur.q.rmax), 4)]]) +
+      `<div class="charts">${snap('curBode')}${snap('curStepP')}</div>`),
+    sec('速度环', kv([['Kp (dq)', f(R.spd.Kp * P.kT, 'A/(rad/s)')], ['Ki·Tω (dq)', f(R.spd.Ki * P.kT * P.Tw)], ['相位裕度', fmt(R.spd.sw.pm, 4) + '°'], ['增益裕度', f(R.spd.sw.gm, 'dB')],
+      ['闭环带宽', fmtHz(R.spd.sw.bw)], ['阶跃超调', fmt(R.spd.sim.met.os, 3) + '%'], ['负载跌落', f(R.spd.sim.dip, 'rpm')]]) + `<div class="charts">${snap('spdBode')}${snap('spdStepP')}</div>`),
+    sec('观测器', kv([['PLL Kp / Ki·Ts', `${fmt(R.obs.pll.Kp, 5)} / ${fmt(R.obs.pll.Ki * P.Ts, 5)}`], ['反电势观测器 Kp / Ki·Ts', `${fmt(R.obs.emf.Kp, 5)} / ${fmt(R.obs.emf.Ki * P.Ts, 5)}`],
+      ['滑模增益', f(R.obs.smo.k * P.kT, 'V')], ['负载观测器 l1·Tω / l2·Tω', `${fmt(R.obs.lo.l1 * P.Tw, 4)} / ${fmt(R.obs.lo.l2 * P.Tw, 4)}`]])),
+    o ? sec('运行点与弱磁', kv([['工作点', `${fmt(o.nOp, 4)} rpm, ${fmt(o.TOp, 4)} N·m`], ['工作点电流 Is / id / iq', o.op ? `${fmt(o.op.Is, 4)} / ${fmt(o.op.id, 4)} / ${fmt(o.op.iq, 4)} A` : '不可行'],
+      ['电压利用率', o.op ? fmt(o.op.util * 100, 3) + '%' : '—'], ['额定转矩不弱磁最高转速', isFinite(o.nRatedMtpa) ? fmt(o.nRatedMtpa, 4) + ' rpm' : '无上限'], ['恒转矩区上限', fmt(o.nBaseMax, 4) + ' rpm'], ['可用相电压', f(o.Vlim, 'V')]])) : '',
+    sec('硬件采样', kv([...hwRows('isn'), ...hwRows('vdc'), ...hwRows('oc')])),
+  ].join('');
+  $('repBody').innerHTML = html;
+  $('report').hidden = false; document.body.style.overflow = 'hidden'; $('btnReportClose').focus();
+}
+function closeReport() { $('report').hidden = true; document.body.style.overflow = ''; $('btnReport').focus(); }
+
 /* ============ EXPORT ============ */
 let expFmt = 'c';
 function renderExport() { if (R && !R.bad) $('code').textContent = exportCode(R, expFmt); }
 
 /* ============ IMPORT ============ */
-const fieldLabel = id => { const l = document.querySelector(`label[for="${id}"]`); return l ? l.textContent.trim() : id; };
+const fieldLabel = id => {
+  const l = document.querySelector(`label[for="${id}"]`); if (!l) return id;
+  const b = l.querySelector('b'); return b ? `${b.textContent} ${l.textContent.slice(b.textContent.length).trim()}` : l.textContent.trim();
+};
 async function importCfg() {
   const files = Array.from($('impFile').files || []);
   const parts = await Promise.all(cfgSortFiles(files).map(f => f.text().then(t => `\n/* ---- ${f.name} ---- */\n` + t)));
@@ -1462,6 +1623,9 @@ function init() {
     if (e.target.id === 'btnClearBase') { clearBaseline(); compute(); toast('已清除对比基准'); }
   });
   $('btnTuneC').addEventListener('click', () => doTune('cur'));
+  $('btnReport').addEventListener('click', buildReport);
+  $('btnReportClose').addEventListener('click', closeReport);
+  $('btnPrint').addEventListener('click', () => { try { window.print(); } catch (e) { } setTimeout(() => { $('repHint').textContent = '如果没有弹出打印对话框：当前环境不允许打印，请在安装的应用或浏览器中打开本工具后再打印。'; }, 600); });
   $('btnTuneS').addEventListener('click', () => doTune('spd'));
   document.addEventListener('pointermove', plotHover);
   document.addEventListener('pointerout', e => { const box = e.target.closest && e.target.closest('.plotbox'); if (box && !box.contains(e.relatedTarget)) plotLeave(e); });
@@ -1507,7 +1671,7 @@ function init() {
   });
   const closeHelp = () => { $('help').hidden = true; document.body.style.overflow = ''; $('btnHelp').focus(); };
   $('btnHelpClose').addEventListener('click', closeHelp);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('help').hidden) closeHelp(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('help').hidden) closeHelp(); if (e.key === 'Escape' && !$('report').hidden) closeReport(); });
   $('help').querySelectorAll('nav a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); const t = document.querySelector(a.getAttribute('href')); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
   try { const t = localStorage.getItem(STORE + '-tab'); if (t) { const b = document.querySelector(`.tabs [data-tab="${t}"]`); if (b) b.click(); } } catch (e) { }
   let rw = 0; window.addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(() => { ANA_KEY.cur = ANA_KEY.spd = null; compute(); }, 150); });

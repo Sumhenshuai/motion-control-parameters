@@ -191,12 +191,21 @@ function designCurrent(P, o = {}) {
   const fcc = o.fcc !== undefined ? o.fcc : parseFloat(IN.fcc), wc = TAU * fcc, m = IN.curMethod, zc = parseFloat(IN.zcc) || 1;
   const ax = L => { const c = currentCtrl(P, L, m, fcc, zc); return { L, ...c, ...currentLoop(P, c, L, P.Rs, fcc, o.npts) }; };
   const d = ax(P.Ld), q = ax(P.Lq);
+  let coupled = null;
   if (o.sim !== false) {
-    const amp = parseFloat(IN.curStep) || 1;
-    d.sim = simCurrent(P, d, amp); q.sim = simCurrent(P, q, amp);
-    d.met = stepMetrics(d.sim.t, d.sim.y, amp); q.met = stepMetrics(q.sim.t, q.sim.y, amp);
+    const amp = parseFloat(IN.curStep) || 1, nSim = parseFloat(IN.simN) || 0;
+    if (nSim > 0) {
+      // at speed: one coupled dq simulation (iq step, id should stay 0)
+      const c = simCurrentDQ(P, d, q, amp, P.p * nSim * TAU / 60, IN.decoup || 'ref');
+      d.sim = { t: c.t, y: c.yd, amp: 0 }; q.sim = { t: c.t, y: c.yq, amp };
+      q.met = stepMetrics(c.t, c.yq, amp); d.met = { os: NaN, tr: NaN, ts: NaN, dev: c.idDev };
+      coupled = { n: nSim, we: c.we, ff: c.ff, idDev: c.idDev, rot: c.we * P.Td * 180 / Math.PI };
+    } else {
+      d.sim = simCurrent(P, d, amp); q.sim = simCurrent(P, q, amp);
+      d.met = stepMetrics(d.sim.t, d.sim.y, amp); q.met = stepMetrics(q.sim.t, q.sim.y, amp);
+    }
   }
-  return { fcc, wc, m, d, q, fcc45: 1 / (8 * P.Td), fcc60: 1 / (12 * P.Td) };
+  return { fcc, wc, m, d, q, coupled, fcc45: 1 / (8 * P.Td), fcc60: 1 / (12 * P.Td) };
 }
 
 // sampled PI + continuous RL plant; the computed voltage takes effect Nd·Ts after sampling (Nd may be fractional), then ZOH
@@ -218,13 +227,47 @@ function simCurrent(P, ax, amp) {
   return { t, y, amp };
 }
 
+
+/* dq-coupled current loop at a constant electrical speed ωe (iq step, id reference 0).
+ * Plant: Ld·did/dt = ud − R·id + ωe·Lq·iq,  Lq·diq/dt = uq − R·iq − ωe·(Ld·id + ψf), integrated with RK4.
+ * Feed-forward ff: 'ref' = firmware motor_current_decoupling (reference currents incl. R terms), 'meas' = sampled currents, 'off'.
+ * Each PI output plus feed-forward is limited as a vector with d-axis priority (firmware motor_current_volt_limit). */
+function simCurrentDQ(P, d, q, amp, we, ff) {
+  const Ts = P.Ts, wcl = TAU * Math.max(1, parseFloat(IN.fcc));
+  // coupling disturbances decay with the plant time constant L/R (the PI zero cancels that pole), so show at least 2.5·L/R
+  const Tend = Math.min(0.5, Math.max(10 / wcl, 40 * Ts, 2.5 * Math.max(P.Ld, P.Lq) / P.Rs)), nS = Math.ceil(Tend / Ts), sub = 20, dt = Ts / sub, dSub = Math.round(P.Nd * sub);
+  const lim = P.piImpl === 'rn' ? P.ilimC : P.Vmax * 2;
+  const emf0 = we * P.psi;                                       // steady state before the step: id = iq = 0, uq = ωe·ψf
+  const piD = makePI(P.piImpl, d.Kp, d.Ki * Ts, d.b0, d.b1, lim);
+  const piQ = makePI(P.piImpl, q.Kp, q.Ki * Ts, q.b0, q.b1, lim, ff === 'off' ? emf0 : 0);
+  const f = (x, u) => [(u[0] - P.Rs * x[0] + we * P.Lq * x[1]) / P.Ld, (u[1] - P.Rs * x[1] - we * (P.Ld * x[0] + P.psi)) / P.Lq];
+  let x = [0, 0], u = [0, emf0]; const qu = [], t = [], yd = [], yq = [];
+  for (let k = 0; k < nS; k++) {
+    const idr = 0, iqr = amp;
+    let vd = piD.step(idr - x[0]), vq = piQ.step(iqr - x[1]);
+    if (ff === 'ref') { vd += P.Rs * idr - we * P.Lq * iqr; vq += P.Rs * iqr + we * (P.Ld * idr + P.psi); }
+    else if (ff === 'meas') { vd += P.Rs * x[0] - we * P.Lq * x[1]; vq += P.Rs * x[1] + we * (P.Ld * x[0] + P.psi); }
+    vd = Math.max(-P.Vmax, Math.min(P.Vmax, vd));
+    const vqm = Math.sqrt(Math.max(0, P.Vmax * P.Vmax - vd * vd)); vq = Math.max(-vqm, Math.min(vqm, vq));
+    qu.push([k * sub + dSub, [vd, vq]]);
+    for (let s = 0; s < sub; s++) {
+      while (qu.length && qu[0][0] <= k * sub + s) u = qu.shift()[1];
+      const k1 = f(x, u), x2 = [x[0] + dt / 2 * k1[0], x[1] + dt / 2 * k1[1]], k2 = f(x2, u);
+      const x3 = [x[0] + dt / 2 * k2[0], x[1] + dt / 2 * k2[1]], k3 = f(x3, u), x4 = [x[0] + dt * k3[0], x[1] + dt * k3[1]], k4 = f(x4, u);
+      x = [x[0] + dt / 6 * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]), x[1] + dt / 6 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])];
+      if (s % 4 === 3) { t.push((k * sub + s + 1) * dt); yd.push(x[0]); yq.push(x[1]); }
+    }
+  }
+  return { t, yd, yq, amp, we, ff, idDev: Math.max(...yd.map(Math.abs)) };
+}
+
 /* PI implementations used by the time-domain simulations
  * inc: u[k] = sat(u[k-1] + b0·e[k] + b1·e[k-1])            (incremental form, output limit only)
  * rn : refi = sat(refi + Ki·T·e); u = sat(Kp·e + refi)     (Renesas motor_pi_ctrl, shared limit, backward Euler) */
-function makePI(mode, Kp, KiT, b0, b1, lim) {
+function makePI(mode, Kp, KiT, b0, b1, lim, u0 = 0) {   // u0: output already held at zero error (pre-charged integrator)
   const sat = x => Math.max(-lim, Math.min(lim, x));
-  if (mode === 'rn') { let refi = 0; return { step: e => { refi = sat(refi + e * KiT); return sat(Kp * e + refi); } }; }
-  let u = 0, ep = 0; return { step: e => { u = sat(u + b0 * e + b1 * ep); ep = e; return u; } };
+  if (mode === 'rn') { let refi = sat(u0); return { step: e => { refi = sat(refi + e * KiT); return sat(Kp * e + refi); } }; }
+  let u = sat(u0), ep = 0; return { step: e => { u = sat(u + b0 * e + b1 * ep); ep = e; return u; } };
 }
 
 /* ZOH-equivalent RL plant 1/(Ls+R) with an input delay of Nd = m + f samples (modified z-transform)
@@ -305,6 +348,124 @@ function designPos(P, cur, spd) {
   const R = { fpc, Kpp, vff, Kaff, Lw, sw };
   R.sim = simCascade(P, cur, spd, R, 'pos');
   return R;
+}
+
+
+/* ============ OPERATING POINT & FLUX WEAKENING ============ */
+/* Steady state, amplitude-invariant dq quantities (peak phase values):
+ *   ud = R·id − ωe·Lq·iq,   uq = R·iq + ωe·(Ld·id + ψf),   Te = 1.5·p·[ψf·iq + (Ld − Lq)·id·iq]
+ * Current vector angle γ is measured from the q axis toward −d: id = −Is·sinγ, iq = Is·cosγ. */
+const opTorque = (P, id, iq) => 1.5 * P.p * (P.psi * iq + (P.Ld - P.Lq) * id * iq);
+function opVoltage(P, we, id, iq) {
+  const ud = P.Rs * id - we * P.Lq * iq, uq = P.Rs * iq + we * (P.Ld * id + P.psi);
+  return { ud, uq, u: Math.hypot(ud, uq) };
+}
+function mtpaAngle(P, Is) {
+  const dL = P.Lq - P.Ld;
+  if (P.type !== 'ipm' || dL <= 1e-12 || Is <= 0) return 0;
+  const id = (P.psi - Math.sqrt(P.psi * P.psi + 8 * dL * dL * Is * Is)) / (4 * dL);
+  return Math.asin(Math.min(1, -id / Is));
+}
+/* Largest current magnitude along angle γ that keeps |u| ≤ Vlim (|u|² is quadratic in Is). */
+function isMaxAtAngle(P, we, g, Vlim, Imax) {
+  const s = Math.sin(g), c = Math.cos(g);
+  const ax = -P.Rs * s - we * P.Lq * c, ay = P.Rs * c - we * P.Ld * s, by = we * P.psi; // u = Is·a + b, b = (0, by)
+  const A = ax * ax + ay * ay, B = 2 * ay * by, Cc = by * by - Vlim * Vlim;
+  if (A < 1e-30) return Cc <= 0 ? Imax : -1;
+  const disc = B * B - 4 * A * Cc; if (disc < 0) return -1;
+  const r1 = (-B - Math.sqrt(disc)) / (2 * A), r2 = (-B + Math.sqrt(disc)) / (2 * A);
+  if (r2 < 0) return -1;
+  const hi = Math.min(Imax, r2); return hi >= Math.max(0, r1) ? hi : -1;
+}
+/* Maximum torque at a speed; fw = false restricts the current angle to the MTPA trajectory. */
+function maxTorqueAt(P, we, Vlim, Imax, fw) {
+  let best = { T: 0, id: 0, iq: 0, g: 0 };
+  if (fw) {
+    best = maxTorqueAt(P, we, Vlim, Imax, false);   // exact MTPA solution is always admissible; the grid can only improve on it
+    for (let gd = 0; gd < 90; gd += 0.5) {
+      const g = gd * Math.PI / 180, Is = isMaxAtAngle(P, we, g, Vlim, Imax); if (Is <= 0) continue;
+      const id = -Is * Math.sin(g), iq = Is * Math.cos(g), T = opTorque(P, id, iq);
+      if (T > best.T) best = { T, id, iq, g: gd };
+    }
+  } else {
+    // along MTPA: voltage rises with current, so the limit is the first Is where |u| exceeds Vlim
+    let lo = 0, hi = Imax;
+    const okI = Is => { const g = mtpaAngle(P, Is); return opVoltage(P, we, -Is * Math.sin(g), Is * Math.cos(g)).u <= Vlim; };
+    if (!okI(1e-6)) return best;
+    if (!okI(hi)) { for (let i = 0; i < 50; i++) { const m = (lo + hi) / 2; if (okI(m)) lo = m; else hi = m; } hi = lo; }
+    const g = mtpaAngle(P, hi), id = -hi * Math.sin(g), iq = hi * Math.cos(g);
+    best = { T: opTorque(P, id, iq), id, iq, g: g * 180 / Math.PI };
+  }
+  return best;
+}
+/* Minimum-current operating point that produces torque T at electrical speed ωe within both limits. */
+function minCurrentPoint(P, we, T, Vlim, Imax) {
+  let best = null;
+  for (let gd = 0; gd < 89.95; gd += 0.05) {
+    const g = gd * Math.PI / 180, s = Math.sin(g), c = Math.cos(g);
+    const a = 1.5 * P.p * (P.Lq - P.Ld) * s * c, b = 1.5 * P.p * P.psi * c;   // T = a·Is² + b·Is
+    let Is;
+    if (Math.abs(a) < 1e-15) Is = T / b;
+    else { const disc = b * b + 4 * a * T; if (disc < 0) continue; Is = (-b + Math.sqrt(disc)) / (2 * a); }
+    if (!(Is >= 0) || Is > Imax) continue;
+    const id = -Is * s, iq = Is * c, v = opVoltage(P, we, id, iq);
+    if (v.u > Vlim) continue;
+    if (!best || Is < best.Is - 1e-12) best = { Is, id, iq, gamma: gd, ...v };
+  }
+  return best;
+}
+function operatingAnalysis(P, hw) {
+  const g = id => parseFloat(IN[id]);
+  const Vlim = hw && hw.v.vEff > 0 ? Math.min(hw.v.vEff, P.Vmax) : P.Vmax, Imax = P.Imax;
+  const wOf = n => P.p * n * TAU / 60;
+  const nOp = g('opN') > 0 ? g('opN') : P.nN, TOp = g('opT') >= 0 && IN.opT !== '' ? g('opT') : P.TN;
+  // torque–speed envelope
+  const nTop = Math.max(P.nMax, nOp) * 1.3, env = { n: [], Tfw: [], Tmtpa: [], Pfw: [] };
+  for (let i = 0; i <= 80; i++) {
+    const n = nTop * i / 80, we = wOf(n), a = maxTorqueAt(P, we, Vlim, Imax, true), b = maxTorqueAt(P, we, Vlim, Imax, false);
+    env.n.push(n); env.Tfw.push(a.T); env.Tmtpa.push(b.T); env.Pfw.push(a.T * n * TAU / 60);
+  }
+  // highest speed that still delivers a torque, by bisection on speed
+  const nLimit = (T, fw) => {
+    if (maxTorqueAt(P, 0, Vlim, Imax, fw).T < T) return 0;
+    let lo = 0, hi = nTop * 3;
+    if (maxTorqueAt(P, wOf(hi), Vlim, Imax, fw).T >= T) return Infinity;
+    for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (maxTorqueAt(P, wOf(m), Vlim, Imax, fw).T >= T) lo = m; else hi = m; }
+    return lo;
+  };
+  const Tmax0 = maxTorqueAt(P, 0, Vlim, Imax, false).T;
+  const res = {
+    Vlim, Imax, nOp, TOp, env, Tmax0,
+    nBaseMax: nLimit(Tmax0 * 0.999, false),       // constant-torque region at Imax
+    nRatedMtpa: nLimit(P.TN, false), nRatedFw: nLimit(P.TN, true),
+    fwPossible: P.psi / P.Ld < Imax,
+  };
+  const we = wOf(nOp);
+  res.op = minCurrentPoint(P, we, TOp, Vlim, Imax);
+  if (res.op) {
+    const o = res.op, gm = mtpaAngle(P, o.Is) * 180 / Math.PI;
+    o.gammaMtpa = gm; o.fw = o.gamma > gm + 0.3;
+    o.Pout = TOp * nOp * TAU / 60; o.Pcu = 1.5 * P.Rs * o.Is * o.Is; o.Pin = 1.5 * (o.ud * o.id + o.uq * o.iq);
+    o.eff = o.Pin > 0 ? o.Pout / o.Pin : NaN; o.util = o.u / Vlim; o.pf = o.Pin / (1.5 * o.u * o.Is);
+    o.Irms = o.Is / Math.SQRT2;
+  }
+  const mt = maxTorqueAt(P, we, Vlim, Imax, true), mm = maxTorqueAt(P, we, Vlim, Imax, false);
+  res.TmaxOpFw = mt.T; res.TmaxOpMtpa = mm.T;
+  // id–iq plane: current circle, voltage ellipses (R neglected for drawing), MTPA, constant-torque curve
+  const plane = { circle: [], mtpa: [], ellipses: [], torque: [] };
+  for (let i = 0; i <= 120; i++) { const t = Math.PI / 2 + Math.PI / 2 * i / 120; plane.circle.push([Imax * Math.cos(t), Imax * Math.sin(t)]); }
+  for (let i = 0; i <= 60; i++) { const Is = Imax * i / 60, gg = mtpaAngle(P, Is); plane.mtpa.push([-Is * Math.sin(gg), Is * Math.cos(gg)]); }
+  [[nOp, '工作点转速'], [P.nN, '额定转速'], [P.nMax, '最高转速']].forEach(([n, name]) => {
+    const w = wOf(n); if (!(w > 0)) return; const r = Vlim / w, pts = [];
+    for (let i = 0; i <= 180; i++) { const t = Math.PI * i / 180; pts.push([(r * Math.cos(t) - P.psi) / P.Ld, r * Math.sin(t) / P.Lq]); }
+    plane.ellipses.push({ n, name, pts });
+  });
+  if (TOp > 0) for (let i = 0; i <= 80; i++) {
+    const id = -Imax * 1.2 * i / 80, den = 1.5 * P.p * (P.psi + (P.Ld - P.Lq) * id);
+    if (den > 0) plane.torque.push([id, TOp / den]);
+  }
+  res.plane = plane;
+  return res;
 }
 
 /* ============ AUTO-TUNE, TRADE-OFF, ROBUSTNESS ============ */
@@ -884,7 +1045,7 @@ function computeHW(P) {
   // PWM
   { const cnt = gv('ftim') * 1e6 / (2 * P.fsw), dcnt = gv('tdead') * gv('ftim'); v.cnt = cnt; v.dcnt = dcnt;
     const dVdt = gv('tdead') * 1e-6 * P.fsw * P.Vdc, Dmax = 1 - (gv('tAd') + gv('tdead')) * 1e-6 * P.fsw, Dmin = gv('tmin') * 1e-6 * P.fsw, vEff = (Dmax - Dmin) * P.Vdc / Math.sqrt(3);
-    const eN = P.p * P.nN * TAU / 60 * P.psi;
+    const eN = P.p * P.nN * TAU / 60 * P.psi; v.vEff = vEff; v.Dmax = Dmax;
     out.pwm = [['载波周期计数 (半周期)', 'fTIM/(2·fPWM)', cnt, 'cnt'], ['死区计数', 'td·fTIM', dcnt, 'cnt'], ['占空比分辨率', 'log2(计数)', Math.log2(cnt), 'bit'], ['电压分辨率', 'Udc/计数', P.Vdc / cnt, 'V'],
       ['死区平均电压误差', 'td·fPWM·Udc', dVdt, 'V'], ['死区误差 / Rs·IN', 'ΔUdt/(Rs·IN)', dVdt / (P.Rs * P.In), '×', dVdt / (P.Rs * P.In) < 0.5 ? 'ok' : 'warn'],
       ['低边采样限制 Dmax', '1 − (tAD+td)·fPWM', Dmax * 100, '%'], ['最小脉宽 Dmin', 'tmin·fPWM', Dmin * 100, '%'], ['可用相电压幅值 (近似)', '(Dmax−Dmin)·Udc/√3', vEff, 'V'],
@@ -950,7 +1111,7 @@ function renesasCfg(R) {
 
 
 /* ============ DEFAULTS & ENTRY POINT ============ */
-const BASE_DEFAULTS = {"motorType": "ipm", "tf": "pow", "zcc": "1", "zsc": "1", "Rs": "1.34", "Ld": "8.2", "Lq": "11.23", "pp": "3", "fluxMode": "psia", "fluxVal": "0.086", "Jm": "3", "JL": "0", "Bv": "0.0001", "Irated": "14.14", "Imax": "20", "nRated": "3000", "nMax": "3500", "Vdc": "310", "fsw": "5000", "upd": "single", "nd": "1", "disc": "be", "Nw": "5", "ff": "100", "Np": "10", "enc": "131072", "Vb": "", "Ib": "", "nb": "", "fcc": "20", "curMethod": "fw", "curStep": "4", "spdMethod": "fw", "fsc": "2", "Nz": "4", "aSO": "2.4", "ktMode": "id0", "spdStep": "100", "loadPct": "50", "fpc": "0.5", "vff": "0", "posStep": "30", "fpll": "25", "zpll": "1", "femf": "250", "zemf": "1", "smoEta": "1.5", "smoLpf": "1000", "flo": "50", "zlo": "0.707", "piImpl": "rn", "ilimC": "", "ilimS": "", "spdSrc": "pll", "tgtPmC": "60", "tgtPmS": "50", "tgtGm": "6", "rbL": "30", "rbRlo": "0.9", "rbRhi": "1.5", "rbJlo": "0.5", "rbJhi": "3", "rbKt": "10", "tuneMode": "worst"};
+const BASE_DEFAULTS = {"motorType": "ipm", "tf": "pow", "zcc": "1", "zsc": "1", "Rs": "1.34", "Ld": "8.2", "Lq": "11.23", "pp": "3", "fluxMode": "psia", "fluxVal": "0.086", "Jm": "3", "JL": "0", "Bv": "0.0001", "Irated": "14.14", "Imax": "20", "nRated": "3000", "nMax": "3500", "Vdc": "310", "fsw": "5000", "upd": "single", "nd": "1", "disc": "be", "Nw": "5", "ff": "100", "Np": "10", "enc": "131072", "Vb": "", "Ib": "", "nb": "", "fcc": "20", "curMethod": "fw", "curStep": "4", "spdMethod": "fw", "fsc": "2", "Nz": "4", "aSO": "2.4", "ktMode": "id0", "spdStep": "100", "loadPct": "50", "fpc": "0.5", "vff": "0", "posStep": "30", "fpll": "25", "zpll": "1", "femf": "250", "zemf": "1", "smoEta": "1.5", "smoLpf": "1000", "flo": "50", "zlo": "0.707", "piImpl": "rn", "ilimC": "", "ilimS": "", "spdSrc": "pll", "tgtPmC": "60", "tgtPmS": "50", "tgtGm": "6", "rbL": "30", "rbRlo": "0.9", "rbRhi": "1.5", "rbJlo": "0.5", "rbJhi": "3", "rbKt": "10", "tuneMode": "worst", "opN": "", "opT": "", "simN": "0", "decoup": "ref"};
 const DEFAULTS = (() => {
   const d = { ...BASE_DEFAULTS };
   HWG.forEach(gp => {
@@ -975,6 +1136,12 @@ function computeAll(inputs) {
   const R = { I, P, cur, spd, pos, obs };
   R.hw = computeHW(P);
   return R;
+}
+/* Operating-point analysis is heavier; the page runs it only when its tab is open. */
+function computeOperating(inputs) {
+  IN = { ...DEFAULTS, ...inputs };
+  const P = readP(); if (validP(P).length) return null;
+  return operatingAnalysis(P, computeHW(P));
 }
 
 /* ============ CODE EXPORT ============ */
@@ -1160,6 +1327,6 @@ function cfgToInputs(vals, base) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULTS, FIELD_IDS, HWG, computeAll, exportCode, exportValues, renesasCfg, parseCfg, cfgToInputs, cfgSortFiles, cArith,
-    piCoef, plantZ, makePI, roots, sweep, fmt, cflt, TAU, autoTune, tradeoff, robustness, currentLoop, speedLoop, pllResp,
+    piCoef, plantZ, makePI, roots, sweep, fmt, cflt, TAU, autoTune, tradeoff, robustness, currentLoop, speedLoop, pllResp, simCurrentDQ, operatingAnalysis, computeOperating, minCurrentPoint, maxTorqueAt, mtpaAngle, opTorque, opVoltage,
   };
 }

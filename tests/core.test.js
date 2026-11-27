@@ -166,6 +166,35 @@ test('robustness: nominal corner equals the designed loop; zero ranges collapse 
   assert.ok(Math.abs(rs0.worst.pm - R.spd.sw.pm) < 0.2, `${rs0.worst.pm} vs ${R.spd.sw.pm}`);
 });
 
+test('operating point: exact torque, minimum current, within limits; envelope never rises with speed', () => {
+  const R = core.computeAll({}), P = R.P;
+  const o = core.computeOperating({ opN: '0.001' });
+  const op = o.op;
+  close(core.opTorque(P, op.id, op.iq), P.TN, 1e-6, 'torque at standstill');
+  assert.ok(op.Is <= P.In + 1e-9, `MTPA needs no more current than id = 0 (${op.Is} vs ${P.In})`);
+  assert.ok(Math.abs(op.gamma - op.gammaMtpa) < 0.1, 'standstill point lies on MTPA');
+  const o2 = core.computeOperating({ opN: '3000' });
+  assert.ok(o2.op.u <= o2.Vlim + 1e-9 && o2.op.Is <= P.Imax + 1e-9);
+  close(core.opTorque(P, o2.op.id, o2.op.iq), P.TN, 1e-6, 'torque at 3000 rpm');
+  for (const T of [o2.env.Tfw, o2.env.Tmtpa]) for (let i = 1; i < T.length; i++) assert.ok(T[i] <= T[i - 1] + 1e-9, `envelope rises at ${o2.env.n[i]} rpm`);
+  for (let i = 0; i < o2.env.n.length; i++) assert.ok(o2.env.Tfw[i] >= o2.env.Tmtpa[i] - 1e-9, 'flux weakening never reduces torque');
+  // rated torque is still available at the reported MTPA speed limit, and not just above it
+  const w = n => P.p * n * TAU / 60;
+  assert.ok(core.maxTorqueAt(P, w(o2.nRatedMtpa * 0.999), o2.Vlim, P.Imax, false).T >= P.TN);
+  assert.ok(core.maxTorqueAt(P, w(o2.nRatedMtpa * 1.01), o2.Vlim, P.Imax, false).T < P.TN);
+});
+
+test('coupled dq simulation: matches the single-axis model at zero speed; reference feed-forward is exact in steady state', () => {
+  const base = { simN: '0.0001', decoup: 'off', curMethod: 'imc', fcc: '200', piImpl: 'inc', curStep: '1' };
+  const Rc = core.computeAll(base), Rs = core.computeAll({ ...base, simN: '0' });
+  assert.ok(Rc.cur.coupled && Rc.cur.coupled.idDev < 1e-4, `id stays 0 without speed (${Rc.cur.coupled.idDev})`);
+  const yc = Rc.cur.q.sim.y, ys = Rs.cur.q.sim.y;
+  for (let i = 0; i < Math.min(yc.length, ys.length); i += 7) assert.ok(Math.abs(yc[i] - ys[i]) < 2e-4, `iq sample ${i}: ${yc[i]} vs ${ys[i]}`);
+  const Rf = core.computeAll({ simN: '3000', decoup: 'ref', curMethod: 'imc', fcc: '300', piImpl: 'inc', curStep: '2' });
+  const yd = Rf.cur.d.sim.y, yq = Rf.cur.q.sim.y;
+  assert.ok(Math.abs(yd[yd.length - 1]) < 0.02 && Math.abs(yq[yq.length - 1] - 2) < 0.02, 'settles to id = 0, iq = reference');
+});
+
 test('NTC divider (B model)', () => {
   const R = core.computeAll({ tmpTopo: 'tmpL', tot: '100' });
   const row = R.hw.out.tmp.find(r => r[0] === '过温阈值电压');
