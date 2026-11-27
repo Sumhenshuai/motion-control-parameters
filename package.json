@@ -1,0 +1,11 @@
+{
+  "name": "pmsm-tuner",
+  "private": true,
+  "description": "PMSM control parameter tuning tool (static PWA in app/)",
+  "scripts": {
+    "test": "node --test tests/core.test.js",
+    "snapshot": "node tools/make_snapshot.js",
+    "reference": "node tools/make_cases.js && python3 tools/gen_reference.py",
+    "serve": "cd app && python3 -m http.server 8000"
+  }
+}

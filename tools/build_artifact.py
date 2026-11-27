@@ -2,7 +2,7 @@
 
 The artifact viewer wraps the page in its own document, blocks service workers and
 only allows scripts from a few CDNs, so this copy drops the document wrapper and
-PWA tags and loads MathJax from jsDelivr instead of the bundled file.
+PWA tags, inlines core.js and loads MathJax from jsDelivr instead of the bundled file.
 
 Usage: python3 tools/build_artifact.py OUTPUT.html
 """
@@ -18,11 +18,14 @@ drop_exact = {
 }
 drop_prefix = ('<link rel="manifest"', '<meta name="apple-', '<meta name="mobile-web-app', '<meta name="theme-color"',
                '<link rel="apple-touch-icon"', '<link rel="icon"')
+core = (src.parent / "core.js").read_text(encoding="utf-8")
 lines = []
 for line in src.read_text(encoding="utf-8").split("\n"):
     t = line.strip()
     if t in drop_exact or t.startswith(drop_prefix):
         continue
+    if t == '<script src="core.js"></script>':
+        line = "<script>\n" + core + "\n</script>"
     if 'src="vendor/mathjax/tex-svg-full.js"' in t:
         line = '<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg-full.js"></script>'
     lines.append(line)

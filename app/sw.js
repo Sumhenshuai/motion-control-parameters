@@ -1,7 +1,7 @@
-/* Offline cache for the PMSM tuner. Bump VERSION whenever app files change. */
-const VERSION = 'pmsm-tuner-v3';
+/* Offline cache for the PMSM tuner. The Pages workflow replaces VERSION with the commit hash on every deploy. */
+const VERSION = 'pmsm-dev';
 const ASSETS = [
-  './', './index.html', './manifest.webmanifest',
+  './', './index.html', './core.js', './manifest.webmanifest',
   './vendor/mathjax/tex-svg-full.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-512-maskable.png', './icons/apple-touch-icon.png'
 ];
