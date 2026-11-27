@@ -24,6 +24,8 @@ for line in src.read_text(encoding="utf-8").split("\n"):
     t = line.strip()
     if t in drop_exact or t.startswith(drop_prefix):
         continue
+    if 'id="btnSchDl"' in t:          # the artifact viewer blocks file downloads; "copy JSON" remains
+        continue
     if t == '<script src="core.js"></script>':
         line = "<script>\n" + core + "\n</script>"
     if 'src="vendor/mathjax/tex-svg-full.js"' in t:

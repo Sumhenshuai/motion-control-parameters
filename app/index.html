@@ -1471,7 +1471,7 @@ function init() {
   $('btnSchSave').addEventListener('click', saveScheme);
   $('schName').addEventListener('keydown', e => { if (e.key === 'Enter') saveScheme(); });
   $('schTbl').addEventListener('click', schemeAction);
-  $('btnSchDl').addEventListener('click', downloadSchemes);
+  if ($('btnSchDl')) $('btnSchDl').addEventListener('click', downloadSchemes);
   $('btnSchCopy').addEventListener('click', () => copyText(schemeJSON()));
   $('schFile').addEventListener('change', e => { if (e.target.files[0]) importSchemes(e.target.files[0]); e.target.value = ''; });
   renderSchemes();
