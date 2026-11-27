@@ -345,8 +345,31 @@ function speedLoop(P, ctrl, curQ, plant, npts = 500) {
 function designSpeed(P, cur, o = {}) {
   const c = speedCtrl(P, cur, o);
   const R = { ...c, ...speedLoop(P, c, cur.q, P, o.npts) };
-  if (o.sim !== false) R.sim = simCascade(P, cur, R, null, 'speed');
+  R.lto = ltoGains(P);
+  if (o.sim !== false) { R.dist = disturbanceResp(P, R, cur.q); R.sim = simCascade(P, cur, R, null, 'speed'); }
   return R;
+}
+/* Load-torque observer (Luenberger, speed-loop rate) used as an optional feed-forward iq_comp = T̂L / Kt. */
+function ltoGains(P) {
+  const wo = TAU * (parseFloat(IN.flo) || 50), z = parseFloat(IN.zlo) || 0.707;
+  return { on: IN.lto === 'on', wo, z, l1: 2 * z * wo - P.B / P.J, l2: P.J * wo * wo };
+}
+/* Dynamic stiffness: speed response to a load-torque disturbance, |ω/TL| in rpm per N·m.
+ *   without observer: ω/TL = −M / (1 + L),   with observer feed-forward: ω/TL = −M·(1 − Tc·Q) / (1 + L)
+ * M = 1/(Js + B), L = speed open loop, Tc = current closed loop, Q = (l2/J)/(s² + (B/J + l1)s + l2/J) = T̂L/TL. */
+function disturbanceResp(P, spd, curQ) {
+  const g = spd.lto, f = [], m0 = [], m1 = [];
+  const fmax = Math.min(P.fs / 2, 1 / (2 * P.Tw)) * 0.999, fmin = Math.max(0.05, spd.fsc / 200);
+  for (let i = 0; i < 200; i++) {
+    const fr = fmin * Math.pow(fmax / fmin, i / 199), w = TAU * fr, s = C(0, w);
+    const M = cdiv(ONE, C(P.B, P.J * w)), L = spd.Lw(w), den = cadd(ONE, L);
+    const Lc = curQ.Lw(w), Tc = cdiv(Lc, cadd(ONE, Lc));
+    const Q = cdiv(C(g.l2 / P.J), cadd(cadd(cmul(s, s), cscale(s, P.B / P.J + g.l1)), C(g.l2 / P.J)));
+    const k = 60 / TAU;
+    f.push(fr); m0.push(cabs(cdiv(M, den)) * k); m1.push(cabs(cdiv(cmul(M, csub(ONE, cmul(Tc, Q))), den)) * k);
+  }
+  const peak = a => Math.max(...a);
+  return { f, m0, m1, peak0: peak(m0), peak1: peak(m1) };
 }
 
 /* ============ POSITION LOOP ============ */
@@ -601,6 +624,7 @@ function simCascade(P, cur, spd, pos, mode) {
   const piW = makePI(P.piImpl, spd.Kp, spd.Ki * P.Tw, spd.b0, spd.b1, rn ? P.ilimS : P.Imax);
   const piC = makePI(P.piImpl, q.Kp, q.Ki * Ts, q.b0, q.b1, rn ? P.ilimC : P.Vmax * 2);
   let iq = 0, w = 0, th = 0, thPrevW = 0, wf = 0, wmPrev = 0, iqRef = 0, wRef = 0;
+  const lto = { w: 0, T: 0 };
   const pll = spd.pll || pllGains(); let thHat = 0, pllI = 0, wHat = 0;   // PLL on the electrical angle, runs every Ts
   // back-EMF observer response on the angle error as a state-space filter: L·x'' + (R+Kpo)·x' + Kio·x = e, y = Kpo·x' + Kio·x
   const ob = pll.obs ? (() => { const L = P.Lq, Kp = 2 * pll.obs.zo * pll.obs.wo * L - P.Rs, Ki = pll.obs.wo * pll.obs.wo * L; return { L, Kp, Ki, a1: P.Rs + Kp }; })() : null;
@@ -627,7 +651,13 @@ function simCascade(P, cur, spd, pos, mode) {
     if (k % P.Nw === 0) {
       const wm = P.spdSrc === 'pll' ? wHat / P.p : (th - thPrevW) / P.Tw; thPrevW = th;
       if (spd.lpf.type === 'tu') { wf = spd.lpf.ka * wf + spd.lpf.kb * (wm + wmPrev); wmPrev = wm; } else wf += spd.alpha * (wm - wf);
-      iqRef = piW.step(wRef - wf);
+      if (spd.lto && spd.lto.on) {
+        // Luenberger load observer on the measured speed and actual current, forward Euler at Tω
+        const lt = spd.lto, eW = wm - lto.w;
+        lto.w += P.Tw * ((P.Kt * iq - lto.T - P.B * lto.w) / P.J + lt.l1 * eW); lto.T -= P.Tw * lt.l2 * eW;
+        const lim = rn ? P.ilimS : P.Imax;
+        iqRef = Math.max(-lim, Math.min(lim, piW.step(wRef - wf) + lto.T / P.Kt));
+      } else iqRef = piW.step(wRef - wf);
     }
     // current loop (q axis) with decoupling feed-forward ωe·ψf
     const ffv = P.p * w * P.psi;
@@ -1071,19 +1101,21 @@ function computeHW(P) {
   out.tol = tolInfo.map(([n, c, N]) => [`${n}：参与容差的器件`, N === 1 << c ? `全部 ${N} 个角点` : `${N} 个伪随机角点`, c, '个']);
   return { v, out, act, extra };
 }
-function renesasCfg(R) {
+/* Renesas RX24T motor-library macros for the current design: [name, C value, comment]; one-element rows are headings.
+ * The library uses the equal-power transform, so MAGNETIC_FLUX is always ψa = √1.5·ψf here. */
+function renesasMacros(R) {
   const { P, cur, spd, obs, hw } = R; const g = id => parseFloat(R.I[id]);
-  const f = x => fmt(x, 6), cf = x => cflt(x).replace(/f$/, '');
+  const cf = x => cflt(x).replace(/f$/, '');
   const L = P.Lq;
   // equivalent firmware (ωn, ζ) for the chosen design (q axis / speed)
   const wcn = Math.sqrt(cur.q.Ki / L), zc = (cur.q.Kp + P.Rs) / (2 * wcn * L);
   const Ktd = P.Kt / P.kT;
   const wsn = Math.sqrt(spd.Ki * P.kT * Ktd / P.J), zs = spd.Kp * P.kT * Ktd / (2 * wsn * P.J);
-  const psiOut = P.tf === 'pow' ? P.psi * Math.sqrt(1.5) : P.psi;
-  const L1 = [
+  const psiOut = P.psi * Math.sqrt(1.5);
+  return [
     ['/* r_motor_targetmotor_cfg.h */'],
     ['MOTOR_CFG_POLE_PAIRS', String(P.p), 'Number of pole pairs'],
-    ['MOTOR_CFG_MAGNETIC_FLUX', cf(psiOut) + 'f', P.tf === 'pow' ? 'ψa = √1.5·ψf [Wb]' : 'ψf [Wb]'],
+    ['MOTOR_CFG_MAGNETIC_FLUX', cf(psiOut) + 'f', 'ψa = √1.5·ψf [Wb]'],
     ['MOTOR_CFG_RESISTANCE', cf(P.Rs) + 'f', '[ohm]'],
     ['MOTOR_CFG_D_INDUCTANCE', cf(P.Ld) + 'f', '[H]'],
     ['MOTOR_CFG_Q_INDUCTANCE', cf(P.Lq) + 'f', '[H]'],
@@ -1121,6 +1153,12 @@ function renesasCfg(R) {
     ['SPEED_CFG_ZETA', cf(zs) + 'f', ''],
     ['SPEED_CFG_LPF_OMEGA', cf(P.ff) + 'f', '[Hz]'],
   ];
+}
+function renesasCfg(R) {
+  const { P, cur, spd, hw } = R, f = x => fmt(x, 6), L = P.Lq;
+  const wcn = Math.sqrt(cur.q.Ki / L), zc = (cur.q.Kp + P.Rs) / (2 * wcn * L);
+  const Ktd = P.Kt / P.kT, wsn = Math.sqrt(spd.Ki * P.kT * Ktd / P.J), zs = spd.Kp * P.kT * Ktd / (2 * wsn * P.J);
+  const L1 = renesasMacros(R);
   let s = `/* 瑞萨 RX24T 电机库配置宏 — 由 PMSM 控制参数整定工具生成 (${new Date().toISOString().slice(0, 10)})\n * 按需替换对应头文件中的同名宏；修改前请核对。\n * 固件在线计算: Kp = 2ζω·L − R, ki = ω²·L·Ts (电流环); Kp = 2ζω·J/(p·ψa), ki = ω²·J·Tω/(p·ψa) (速度环)\n */\n`;
   L1.forEach(r => { if (r.length === 1) s += r[0] + '\n'; else s += `#define     ${r[0].padEnd(36)}(${r[1].replace(/^\(|\)$/g, '')})${r[2] ? '   /* ' + r[2] + ' */' : ''}\n`; });
   s += `\n/* 固件实际 PI 增益 (运行时由上述 ω、ζ 计算):\n * id: kp = ${f(2 * zc * wcn * P.Ld - P.Rs)}, ki = ${f(wcn * wcn * P.Ld * P.Ts)}\n * iq: kp = ${f(2 * zc * wcn * P.Lq - P.Rs)}, ki = ${f(wcn * wcn * P.Lq * P.Ts)}\n * speed: kp = ${f(2 * zs * wsn * P.J / Ktd)}, ki = ${f(wsn * wsn * P.J / Ktd * P.Tw)}\n * i = (ADC_OFFSET − ad) × ${f(hw.v.aLsb)} A/LSB;  Udc = ad × ${f(hw.v.vLsbDc)} V/LSB\n */\n`;
@@ -1227,7 +1265,7 @@ function designChecks(inputs) {
 }
 
 /* ============ DEFAULTS & ENTRY POINT ============ */
-const BASE_DEFAULTS = {"motorType": "ipm", "tf": "pow", "zcc": "1", "zsc": "1", "Rs": "1.34", "Ld": "8.2", "Lq": "11.23", "pp": "3", "fluxMode": "psia", "fluxVal": "0.086", "Jm": "3", "JL": "0", "Bv": "0.0001", "Irated": "14.14", "Imax": "20", "nRated": "3000", "nMax": "3500", "Vdc": "310", "fsw": "5000", "upd": "single", "nd": "1", "disc": "be", "Nw": "5", "ff": "100", "Np": "10", "enc": "131072", "Vb": "", "Ib": "", "nb": "", "fcc": "20", "curMethod": "fw", "curStep": "4", "spdMethod": "fw", "fsc": "2", "Nz": "4", "aSO": "2.4", "ktMode": "id0", "spdStep": "100", "loadPct": "50", "fpc": "0.5", "vff": "0", "posStep": "30", "fpll": "25", "zpll": "1", "femf": "250", "zemf": "1", "smoEta": "1.5", "smoLpf": "1000", "flo": "50", "zlo": "0.707", "piImpl": "rn", "ilimC": "", "ilimS": "", "spdSrc": "pll", "tgtPmC": "60", "tgtPmS": "50", "tgtGm": "6", "rbL": "30", "rbRlo": "0.9", "rbRhi": "1.5", "rbJlo": "0.5", "rbJhi": "3", "rbKt": "10", "tuneMode": "worst", "opN": "", "opT": "", "simN": "0", "decoup": "ref", "obsDyn": "on"};
+const BASE_DEFAULTS = {"motorType": "ipm", "tf": "pow", "zcc": "1", "zsc": "1", "Rs": "1.34", "Ld": "8.2", "Lq": "11.23", "pp": "3", "fluxMode": "psia", "fluxVal": "0.086", "Jm": "3", "JL": "0", "Bv": "0.0001", "Irated": "14.14", "Imax": "20", "nRated": "3000", "nMax": "3500", "Vdc": "310", "fsw": "5000", "upd": "single", "nd": "1", "disc": "be", "Nw": "5", "ff": "100", "Np": "10", "enc": "131072", "Vb": "", "Ib": "", "nb": "", "fcc": "20", "curMethod": "fw", "curStep": "4", "spdMethod": "fw", "fsc": "2", "Nz": "4", "aSO": "2.4", "ktMode": "id0", "spdStep": "100", "loadPct": "50", "fpc": "0.5", "vff": "0", "posStep": "30", "fpll": "25", "zpll": "1", "femf": "250", "zemf": "1", "smoEta": "1.5", "smoLpf": "1000", "flo": "50", "zlo": "0.707", "piImpl": "rn", "ilimC": "", "ilimS": "", "spdSrc": "pll", "tgtPmC": "60", "tgtPmS": "50", "tgtGm": "6", "rbL": "30", "rbRlo": "0.9", "rbRhi": "1.5", "rbJlo": "0.5", "rbJhi": "3", "rbKt": "10", "tuneMode": "worst", "opN": "", "opT": "", "simN": "0", "decoup": "ref", "obsDyn": "on", "lto": "off"};
 const DEFAULTS = (() => {
   const d = { ...BASE_DEFAULTS };
   HWG.forEach(gp => {
@@ -1352,24 +1390,65 @@ function cfgEval(expr, defs, vals, depth, forIf) {
   if (missing || !s.trim()) return NaN;
   return cArith(s);
 }
-function parseCfg(text) {
-  const s = text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, '').replace(/\\\r?\n/g, ' ');
-  const defs = {}, stack = [];
+/* files: [{ name, text }] processed in order. loc records the file and 0-based line of each active definition;
+ * comments are blanked character by character so line numbers stay valid. */
+function preprocess(files) {
+  const defs = {}, loc = {}, stack = [];
   const active = () => stack.every(x => x.active);
-  for (const line of s.split(/\r?\n/)) {
-    const m = /^\s*#\s*(\w+)\s*(.*)$/.exec(line); if (!m) continue;
+  files.forEach((file, fi) => {
+  const s = file.text.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\r\n]/g, ' ')).replace(/\/\/[^\r\n]*/g, '');
+  s.split(/\r?\n/).forEach((line, li) => {
+    const m = /^\s*#\s*(\w+)\s*(.*)$/.exec(line); if (!m) return;
     const d = m[1], rest = m[2].trim();
     if (d === 'ifdef' || d === 'ifndef') { const has = rest.split(/\s+/)[0] in defs; const c = d === 'ifdef' ? has : !has; stack.push({ active: c, taken: c }); }
     else if (d === 'if') { const c = active() && !!cfgEval(rest, defs, {}, 0, true); stack.push({ active: c, taken: c }); }
-    else if (d === 'elif') { const t = stack[stack.length - 1]; if (!t) continue; if (t.taken) t.active = false; else { const c = !!cfgEval(rest, defs, {}, 0, true); t.active = c; t.taken = c; } }
+    else if (d === 'elif') { const t = stack[stack.length - 1]; if (!t) return; if (t.taken) t.active = false; else { const c = !!cfgEval(rest, defs, {}, 0, true); t.active = c; t.taken = c; } }
     else if (d === 'else') { const t = stack[stack.length - 1]; if (t) { t.active = !t.taken; t.taken = true; } }
     else if (d === 'endif') stack.pop();
-    else if (d === 'define' && active()) { const mm = /^(\w+)(\([^)]*\))?\s*(.*)$/.exec(rest); if (mm && !mm[2]) defs[mm[1]] = mm[3].trim(); }
+    else if (d === 'define' && active()) { const mm = /^(\w+)(\([^)]*\))?\s*(.*)$/.exec(rest); if (mm && !mm[2]) { defs[mm[1]] = mm[3].trim(); loc[mm[1]] = { file: fi, line: li }; } }
     else if (d === 'undef' && active()) delete defs[rest.split(/\s+/)[0]];
-  }
+  });
+  });
   const vals = {}, unresolved = [];
   Object.keys(defs).forEach(k => { if (!defs[k]) return; const v = cfgEval(defs[k], defs, vals, 0, false); if (isFinite(v)) vals[k] = v; else unresolved.push(k); });
-  return { defs, vals, unresolved };
+  return { defs, vals, unresolved, loc };
+}
+function parseCfg(text) { return preprocess([{ name: 'paste', text }]); }
+
+/* Writes the current design back into the imported headers. Only active definitions whose original value is a plain
+ * numeric literal are edited, in place, keeping parentheses, suffix style and comments. exclude: macro names to leave. */
+function patchCfg(files, R, exclude = []) {
+  const pp = preprocess(files), skip = new Set(exclude);
+  const lines = files.map(f => f.text.split(/\r?\n/));
+  const changes = [], skipped = [];
+  renesasMacros(R).forEach(([name, val]) => {
+    if (!name || val === undefined || !(name in pp.loc)) return;
+    const { file, line } = pp.loc[name], raw = lines[file][line];
+    const m = new RegExp('^(\\s*#\\s*define\\s+' + name + '\\b\\s*)(.*?)(\\s*(?:/\\*.*|//.*)?)$').exec(raw);
+    if (!m) { skipped.push([name, '无法识别该行']); return; }
+    const oldExpr = m[2].trim(), oldV = cArith(cfgNormalize(oldExpr)), newV = cArith(cfgNormalize(val));
+    if (!isFinite(newV) || (isFinite(oldV) && Math.abs(newV - oldV) <= 1e-6 * Math.max(Math.abs(oldV), 1e-12))) return;
+    const lit = /^\(?\s*(0[xX][0-9a-fA-F]+|-?\d*\.?\d+(?:[eE][+-]?\d+)?)([fFuUlL]*)\s*\)?$/.exec(oldExpr);
+    if (!lit) { skipped.push([name, `原值是表达式 ${oldExpr}（= ${fmt(oldV, 6)}），新值 ${fmt(newV, 6)}，未自动修改`]); return; }
+    const paren = oldExpr.startsWith('('), hex = /^0[xX]/.test(lit[1]), suf = lit[2];
+    let body;
+    if (hex) body = '0x' + Math.round(newV).toString(16).toUpperCase() + suf;
+    else if (/[fF]/.test(suf)) body = cflt(newV).replace(/f$/, suf.replace(/[^fF]/g, '') || 'f');
+    else if (/[uU]/.test(suf) || /^-?\d+$/.test(lit[1])) body = String(Math.round(newV)) + suf;
+    else body = String(+newV.toPrecision(7)) + suf;
+    const newExpr = paren ? `(${body})` : body;
+    // keep comment columns aligned: absorb the length difference in the whitespace before the comment (at least one space)
+    const lead = /^\s*/.exec(m[3])[0], tail = m[3].slice(lead.length);
+    const gap = tail ? ' '.repeat(Math.max(1, lead.length - (newExpr.length - m[2].length))) : lead;
+    const newLine = m[1] + newExpr + gap + tail;
+    const change = { file, line: line + 1, name, old: oldExpr, new: newExpr, oldV, newV, excluded: skip.has(name), oldLine: raw, newLine };
+    if (!change.excluded) lines[file][line] = newLine;
+    changes.push(change);
+  });
+  return {
+    files: files.map((f, i) => ({ name: f.name, text: lines[i].join(/\r\n/.test(f.text) ? '\r\n' : '\n'), changes: changes.filter(c => c.file === i && !c.excluded) })),
+    changes, skipped,
+  };
 }
 // order in which headers are concatenated: later files may use macros from earlier ones
 function cfgSortFiles(files) {
@@ -1444,6 +1523,6 @@ function cfgToInputs(vals, base) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULTS, FIELD_IDS, HWG, computeAll, exportCode, exportValues, renesasCfg, parseCfg, cfgToInputs, cfgSortFiles, cArith,
-    piCoef, plantZ, makePI, roots, sweep, fmt, cflt, TAU, autoTune, tradeoff, robustness, currentLoop, speedLoop, pllResp, simCurrentDQ, operatingAnalysis, computeOperating, computeIdentify, psiToField, designChecks, IDG, pllGains, minCurrentPoint, maxTorqueAt, mtpaAngle, opTorque, opVoltage,
+    piCoef, plantZ, makePI, roots, sweep, fmt, cflt, TAU, autoTune, tradeoff, robustness, currentLoop, speedLoop, pllResp, simCurrentDQ, operatingAnalysis, computeOperating, computeIdentify, psiToField, designChecks, IDG, pllGains, preprocess, patchCfg, renesasMacros, minCurrentPoint, maxTorqueAt, mtpaAngle, opTorque, opVoltage,
   };
 }

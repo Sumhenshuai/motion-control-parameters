@@ -73,6 +73,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .top .sp{flex:1}
 .btn{border:1px solid var(--line);background:var(--panel-2);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px;white-space:nowrap}
 .btn:hover{border-color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:default;border-color:var(--line)}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .btn.small{padding:3px 9px;font-size:12px}
 
@@ -247,6 +248,12 @@ table.g tr.worst td{background:var(--bad-soft)}
 .note.chk b{white-space:nowrap}
 .chklink{border:0;background:none;color:var(--accent);cursor:pointer;font-size:12px;padding:0;white-space:nowrap;order:2;margin-left:auto}
 #chkList .btn{align-self:flex-start;margin-top:4px}
+
+pre.code.diff{max-height:none;white-space:pre-wrap;word-break:break-all}
+pre.code.diff .ln{color:var(--muted)}
+pre.code.diff .del{color:var(--bad);background:var(--bad-soft)}
+pre.code.diff .add{color:var(--ok);background:var(--ok-soft)}
+.patchfile{border-top:1px solid var(--line-2);padding-top:8px}
 pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:12px;overflow:auto;font:12px/1.55 var(--f-mono);margin:0;max-height:520px;white-space:pre}
 .codebar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
 .codebar .sp{flex:1}
@@ -288,6 +295,8 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
     <span class="sub">电流环 · 速度环 · 位置环 · 观测器 — 按离散采样系统 (z 域) 设计与校核</span>
   </div>
   <div class="sp"></div>
+  <button class="btn" id="btnUndo" type="button" title="撤销 (Ctrl+Z)" disabled>↶ 撤销</button>
+  <button class="btn" id="btnRedo" type="button" title="重做 (Ctrl+Y)" disabled>↷ 重做</button>
   <button class="btn" id="btnReport" type="button">报告</button>
   <button class="btn" id="btnReset" type="button">恢复示例参数</button>
   <button class="btn primary" id="btnHelp" type="button">帮助 / 公式</button>
@@ -519,6 +528,9 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
           <div class="knob"><span class="klabel">自动整定</span>
             <div class="row"><button class="btn primary" id="btnTuneS" type="button">按目标裕度整定</button></div>
             <span class="hint" id="tuneSHint"></span></div>
+          <div class="knob"><label for="lto">负载转矩观测器前馈</label>
+            <div class="inp"><select id="lto"><option value="off">关闭 (本固件)</option><option value="on">开启 iq += T̂L/Kt</option></select></div>
+            <span class="hint">观测器带宽在“观测器”页设置 (负载转矩观测器 fo)。</span></div>
           <div class="knob"><label for="spdStep">仿真：速度阶跃 / 负载阶跃</label>
             <div class="row"><div class="inp"><input id="spdStep" type="number" step="any" value="100"><span class="u">rpm</span></div><div class="inp"><input id="loadPct" type="number" step="any" value="50"><span class="u">% TN</span></div></div></div>
         </div>
@@ -530,6 +542,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <div class="card"><div class="charts">
         <div class="chart"><div class="ct"><b>速度开环 Bode</b><span class="lg"><i style="border-color:var(--ch1)"></i>L(jω)</span><span class="lg"><i style="border-color:var(--ch3)"></i>闭环 ω/ω*</span></div><div class="plot" id="spdBode"></div></div>
         <div class="chart"><div class="ct"><b>速度阶跃 + 负载扰动</b><span class="lg"><i style="border-color:var(--ch1)"></i>n (rpm)</span><span class="lg"><i style="border-color:var(--ch2)"></i>iq (A, 右轴比例)</span><span class="lg"><i class="d" style="border-color:var(--ref)"></i>指令</span></div><div class="plot" id="spdStepP"></div></div>
+        <div class="chart"><div class="ct"><b>抗负载扰动 (动态刚度)</b><span class="lg"><i style="border-color:var(--ch1)"></i>无观测器</span><span class="lg"><i style="border-color:var(--ch2)"></i>负载观测器前馈</span></div><div class="plot" id="spdDist"></div><div class="hint" id="spdDistHint"></div></div>
       </div></div>
       <div class="card">
         <h3>带宽–裕度权衡与参数失配 <span class="sub">只用频域分析；目标与变化范围在左侧“整定目标与鲁棒性”中设置</span></h3>
@@ -632,6 +645,13 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         </div>
         <textarea id="impText" rows="5" placeholder="也可以把头文件内容直接粘贴到这里。支持注释、#if/#ifdef 条件编译和宏表达式（如 INVERTER_CFG_INPUT_V * 0.5f）。"></textarea>
         <div id="impResult" class="pane" style="padding-top:8px"></div>
+      </div>
+      <div class="card" id="patchCard" hidden>
+        <h3>写回固件头文件 <span class="sub">把当前参数写回导入的头文件：只改数值，保留注释、格式和条件编译</span></h3>
+        <div class="hint">来源：<span id="patchSrc"></span>。可逐项取消勾选；以表达式定义的宏不会自动修改，会列在下方。</div>
+        <div class="tblwrap"><table class="g" id="patchTbl"></table></div>
+        <div class="notes" id="patchSkip"></div>
+        <div id="patchFiles" class="pane" style="padding-top:8px"></div>
       </div>
       <div class="card">
         <h3>方案管理 <span class="sub">保存在本机浏览器；可导出为 JSON 文件在电脑和手机之间传递</span></h3>
@@ -829,7 +849,11 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <div class="eq">\[ \varepsilon = \theta - \hat\theta,\quad \hat\omega = K_p\varepsilon + I,\quad I \mathrel{+}= K_iT_s\varepsilon,\quad \hat\theta \mathrel{+}= T_s\hat\omega \]</div>
         <div class="eq">\[ \frac{\hat\omega}{\omega} = \frac{C(z)}{j\omega\,\bigl(1 + C(z)\,\frac{T_sz^{-1}}{1-z^{-1}}\bigr)},\qquad C(z) = K_p + \frac{K_iT_sz^{-1}}{1-z^{-1}} \]</div>
         <p>PLL 自然频率越低，速度反馈的相位滞后越大，速度环可用带宽越低。工具的速度环频域分析与仿真都包含这一环节（观测器角度误差的动态暂未计入）。</p>
-        <h4>5.4 离散实现要点</h4>
+        <h4>5.4 抗负载扰动与负载转矩观测器</h4>
+        <p>动态刚度给出负载转矩正弦扰动到转速的响应：</p>
+        <div class="eq">\[ \frac{\omega}{T_L} = -\frac{M(s)\,\bigl(1 - T_c(s)\,Q(s)\bigr)}{1 + L(s)},\qquad M = \frac{1}{Js + B},\qquad Q = \frac{\hat T_L}{T_L} = \frac{l_2/J}{s^2 + (B/J + l_1)s + l_2/J} \]</div>
+        <p>不开观测器时 \(Q = 0\)。开启后把 \(\hat T_L/K_t\) 加到速度环输出，扰动在观测器带宽以内被提前抵消，峰值降低；速度环本身的稳定性不变。仿真中观测器以 \(T_\omega\) 前向欧拉执行，输入为测速值和实际 iq。</p>
+        <h4>5.5 离散实现要点</h4>
         <p>差分测速 \(\omega[k] = (\theta[k] - \theta[k-1])/T_\omega\) 等效平均滤波（约 \(T_\omega/2\) 延时），一阶 IIR 滤波 \(y \mathrel{+}= \alpha(x - y)\)，\(\alpha = 1 - e^{-\omega_f T_\omega}\)。PI 离散用 \(K_{i\omega}T_\omega\)。输出 \(i_q^*\) 限幅于 \(I_{max}\)，并做积分抗饱和。</p>
       </section>
 
@@ -945,6 +969,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <section id="h-imp">
         <h3>14. 导入固件配置与方案对比</h3>
         <p>“导入 / 导出”页可选择或粘贴 <span class="mono">r_motor_targetmotor_cfg.h</span>、<span class="mono">r_motor_inverter_cfg.h</span>、<span class="mono">r_motor_module_cfg.h</span>。解析器处理注释、<span class="mono">#if / #ifdef / #elif / #else</span> 条件编译、数值后缀 (f / U)、十六进制和宏表达式（例如 <span class="mono">INVERTER_CFG_INPUT_V * 0.5f</span>），不执行任何代码。导入后按单位换算填入（H → mH、Arms → 峰值、kHz → Hz 等），结果表列出每个宏填入了哪个参数。</p>
+        <p><b>写回</b>：导入的头文件保存在本机。修改参数后，“写回固件头文件”列出与原文件不同的宏（文件名与行号、原值、新值），可逐项取消；只改当前条件编译分支里以数值字面量定义的宏，保留括号、f / U 后缀、十六进制写法、注释和对齐，行数不变。以表达式定义的宏（如 <span class="mono">INVERTER_CFG_INPUT_V * 0.5f</span>）不会被改写。每个文件可复制或下载，替换前建议用版本管理对比一次。</p>
         <p>勾选“同时设为对比基准”后，导入的固件参数成为基准。之后修改任何参数，各环路页的 Bode 图、阶跃响应以虚线显示基准，参数表增加“基准 / 变化”列，指标卡显示基准值。也可以随时把当前参数设为基准。</p>
       </section>
 
@@ -1170,6 +1195,7 @@ function compute() {
   renderHW(R.hw);
   renderIdentify();
   renderExport();
+  renderPatch();
   save();
   scheduleAnalysis();
   scheduleChecks();
@@ -1304,6 +1330,13 @@ function renderSpeed() {
   el.innerHTML = plotSVG(el, { xmin: 0, xmax: tEnd, xscale: 1000, xlabel: '时间 ms', ylabel: '转速 rpm', h: 340, r2: true,
     series: [{ x: s.t, y: s.r, c: 'var(--ref)', dash: '2 3', w: 1.1 }, { x: s.t, y: s.y, c: 'var(--ch1)', n: 'n rpm' }, { x: s.t, y: s.y2, c: 'var(--ch2)', y2: true, w: 1.1, n: 'iq A' },
       ...(bs ? [{ x: bs.t, y: bs.y, c: 'var(--ch1)', ...BASE_STYLE, n: '基准 n rpm' }] : [])], aria: '速度阶跃响应' });
+  const D = spd.dist, ed = $('spdDist');
+  if (D) {
+    ed.innerHTML = plotSVG(ed, { xlog: true, xmin: D.f[0], xmax: D.f[D.f.length - 1], xlabel: '频率 Hz', ylabel: 'rpm / N·m', h: 260,
+      series: [{ x: D.f, y: D.m0, c: 'var(--ch1)', n: '无观测器' }, { x: D.f, y: D.m1, c: 'var(--ch2)', n: '观测器前馈' }, ...(B && B.dist ? [{ x: B.dist.f, y: B.dist.m0, c: 'var(--ch1)', ...BASE_STYLE, n: '基准' }] : [])],
+      ymin: 0, ymax: Math.max(D.peak0, D.peak1, B && B.dist ? B.dist.peak0 : 0) * 1.1, aria: '动态刚度' });
+    $('spdDistHint').textContent = `负载转矩在该频率正弦变化 1 N·m 时的转速波动幅值。最差 ${fmt(D.peak0, 4)} rpm/N·m；开启负载观测器 (${fmtHz(spd.lto.wo / TAU)}) 前馈后 ${fmt(D.peak1, 4)} rpm/N·m，为原来的 ${fmt(D.peak1 / D.peak0 * 100, 3)}%。${spd.lto.on ? '仿真已包含观测器前馈。' : ''}`;
+  }
 }
 
 function renderPos() {
@@ -1621,6 +1654,58 @@ function renderChecks() {
     `<button class="btn small" id="chkToggle" type="button">${chkAll ? '只看需处理 / 注意项' : `显示全部 (含 ${n('ok')} 项通过)`}</button>`;
 }
 
+/* ============ WRITE BACK TO FIRMWARE HEADERS ============ */
+let IMPORTED = [], PATCH_EXCL = new Set(), PATCH = null;
+const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function renderPatch() {
+  const card = $('patchCard');
+  if (!IMPORTED.length) { card.hidden = true; return; }
+  card.hidden = false;
+  if (!R || R.bad) return;
+  PATCH = patchCfg(IMPORTED, R, [...PATCH_EXCL]);
+  const fileName = i => IMPORTED[i].name;
+  $('patchSrc').textContent = IMPORTED.map(f => f.name).join('、');
+  $('patchTbl').innerHTML = PATCH.changes.length
+    ? '<tr><th>写入</th><th>宏</th><th>文件:行</th><th style="text-align:right">原值</th><th style="text-align:right">新值</th></tr>' + PATCH.changes.map(c =>
+      `<tr><td><input type="checkbox" data-patch="${c.name}" ${c.excluded ? '' : 'checked'} aria-label="写入 ${c.name}"></td><td class="s">${c.name}</td><td class="u">${esc(fileName(c.file))}:${c.line}</td><td class="v">${esc(c.old)}</td><td class="v">${esc(c.new)}</td></tr>`).join('')
+    : '<tr><td class="hint">当前参数与导入的头文件一致，没有需要写回的修改。</td></tr>';
+  $('patchSkip').innerHTML = PATCH.skipped.map(([n, why]) => `<div class="note warn"><b>${n}</b>　${esc(why)}</div>`).join('');
+  $('patchFiles').innerHTML = PATCH.files.map((f, i) => `<div class="patchfile"><div class="codebar"><b class="mono">${esc(f.name)}</b><span class="hint">${f.changes.length} 处修改</span><span class="sp"></span>
+      <button class="btn small" type="button" data-pf-copy="${i}" ${f.changes.length ? '' : 'disabled'}>复制此文件</button><button class="btn small" type="button" data-pf-dl="${i}" ${f.changes.length ? '' : 'disabled'}>下载此文件</button></div>
+      ${f.changes.length ? `<pre class="code diff">${f.changes.map(c => `<span class="ln">@@ 第 ${c.line} 行</span>\n<span class="del">- ${esc(c.oldLine)}</span>\n<span class="add">+ ${esc(c.newLine)}</span>`).join('\n')}</pre>` : ''}</div>`).join('');
+}
+function patchAction(e) {
+  const cb = e.target.closest('[data-patch]');
+  if (cb) { if (cb.checked) PATCH_EXCL.delete(cb.dataset.patch); else PATCH_EXCL.add(cb.dataset.patch); renderPatch(); return; }
+  const cp = e.target.closest('[data-pf-copy]'); if (cp && PATCH) { copyText(PATCH.files[+cp.dataset.pfCopy].text); return; }
+  const dl = e.target.closest('[data-pf-dl]');
+  if (dl && PATCH) {
+    const f = PATCH.files[+dl.dataset.pfDl];
+    try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([f.text], { type: 'text/plain' })); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); toast('已开始下载 ' + f.name + '；如果没有反应，请用“复制此文件”'); }
+    catch (err) { copyText(f.text); }
+  }
+}
+
+/* ============ UNDO / REDO ============ */
+/* Snapshots of all inputs; edits within 0.5 s form one step. */
+const HIST = [], HMAX = 60; let HPOS = -1, histTimer = 0, histMute = false;
+function histRecord() {
+  if (histMute) return;
+  clearTimeout(histTimer);
+  histTimer = setTimeout(() => {
+    const snap = readInputs(), key = JSON.stringify(snap);
+    if (HPOS >= 0 && JSON.stringify(HIST[HPOS]) === key) return;
+    HIST.splice(HPOS + 1); HIST.push(snap); if (HIST.length > HMAX) HIST.shift(); HPOS = HIST.length - 1; histButtons();
+  }, 500);
+}
+function histGo(d) {
+  clearTimeout(histTimer);
+  const to = HPOS + d; if (to < 0 || to >= HIST.length) return;
+  HPOS = to; histMute = true; applyInputs(HIST[HPOS]); compute(); histMute = false; histButtons();
+  toast(d < 0 ? '已撤销' : '已重做');
+}
+function histButtons() { $('btnUndo').disabled = HPOS <= 0; $('btnRedo').disabled = HPOS >= HIST.length - 1; }
+
 /* ============ EXPORT ============ */
 let expFmt = 'c';
 function renderExport() { if (R && !R.bad) $('code').textContent = exportCode(R, expFmt); }
@@ -1632,14 +1717,16 @@ const fieldLabel = id => {
 };
 async function importCfg() {
   const files = Array.from($('impFile').files || []);
-  const parts = await Promise.all(cfgSortFiles(files).map(f => f.text().then(t => `\n/* ---- ${f.name} ---- */\n` + t)));
+  const srcs = await Promise.all(cfgSortFiles(files).map(f => f.text().then(text => ({ name: f.name, text }))));
   const pasted = $('impText').value;
-  const text = parts.join('\n') + '\n' + pasted;
-  if (!text.trim()) { $('impResult').innerHTML = '<div class="note warn">没有内容可导入：请选择头文件或粘贴文本。</div>'; return; }
-  const parsed = parseCfg(text);
+  if (pasted.trim()) srcs.push({ name: 'pasted_cfg.h', text: pasted });
+  if (!srcs.length) { $('impResult').innerHTML = '<div class="note warn">没有内容可导入：请选择头文件或粘贴文本。</div>'; return; }
+  const parsed = preprocess(srcs);
   const res = cfgToInputs(parsed.vals, readInputs());
   if (!res.applied.length) { $('impResult').innerHTML = `<div class="note bad">没有识别到可用的宏定义（共解析 ${Object.keys(parsed.vals).length} 个数值宏）。请确认粘贴的是 r_motor_*_cfg.h。</div>`; return; }
   applyInputs(res.inputs);
+  IMPORTED = srcs; PATCH_EXCL = new Set();
+  try { localStorage.setItem(STORE + '-cfgfiles', JSON.stringify(srcs)); } catch (e) { }
   const name = `固件导入 ${files.length ? files.map(f => f.name).join(', ') : '粘贴文本'} · ${new Date().toLocaleString()}`;
   if ($('impBase').checked) setBaseline(res.inputs, name);
   $('impResult').innerHTML = `<div class="note ok">已导入 ${res.applied.length} 项${$('impBase').checked ? '，并设为对比基准。之后修改参数时，各页会显示与固件现值的差异' : ''}。</div>` +
@@ -1709,7 +1796,7 @@ function updPlaceholders() {
 }
 let raf = 0;
 function schedule() { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { updPlaceholders(); compute(); }); }
-function save() { try { const o = {}; FIELDS.forEach(id => o[id] = $(id).value); localStorage.setItem(STORE, JSON.stringify(o)); } catch (e) { } }
+function save() { histRecord(); try { const o = {}; FIELDS.forEach(id => o[id] = $(id).value); localStorage.setItem(STORE, JSON.stringify(o)); } catch (e) { } }
 function load() {
   try { const o = JSON.parse(localStorage.getItem(STORE) || 'null'); if (o) FIELDS.forEach(id => { if (o[id] !== undefined) $(id).value = o[id]; }); } catch (e) { }
 }
@@ -1732,6 +1819,18 @@ function init() {
     if (e.target.id === 'btnClearBase') { clearBaseline(); compute(); toast('已清除对比基准'); }
   });
   $('btnTuneC').addEventListener('click', () => doTune('cur'));
+  $('btnUndo').addEventListener('click', () => histGo(-1));
+  $('btnRedo').addEventListener('click', () => histGo(1));
+  document.addEventListener('keydown', e => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const t = document.activeElement, editing = t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && t.type !== 'checkbox' && t.type !== 'range'));
+    if (editing) return;   // let the browser undo text inside the focused field
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); histGo(-1); }
+    else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); histGo(1); }
+  });
+  try { const f = JSON.parse(localStorage.getItem(STORE + '-cfgfiles') || 'null'); if (Array.isArray(f)) IMPORTED = f; } catch (e) { }
+  $('patchCard').addEventListener('click', patchAction);
   $('idGroups').addEventListener('click', e => { const b = e.target.closest('[data-apply]'); if (b) applyIdentify(b.dataset.apply); });
   $('chkList').addEventListener('click', e => {
     const go = e.target.closest('[data-tab-go]'); if (go) { const t = document.querySelector(`.tabs [data-tab="${go.dataset.tabGo}"]`); if (t) { t.click(); t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }

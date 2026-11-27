@@ -240,6 +240,34 @@ test('back-EMF observer dynamics in the PLL path match the continuous model', ()
   }
 });
 
+test('cfg write-back: round trip changes nothing, edits keep comments and skip inactive branches and expressions', () => {
+  const files = [{ name: 'sample_cfg.h', text: fs.readFileSync(fx('sample_cfg.h'), 'utf8') }];
+  const pp = core.preprocess(files);
+  assert.equal(files[0].text.split('\n')[pp.loc.MOTOR_CFG_POLE_PAIRS.line].includes('(4)'), true, 'location of the active definition');
+  const base = core.cfgToInputs(pp.vals, core.DEFAULTS).inputs;
+  const rt = core.patchCfg(files, core.computeAll(base));
+  assert.deepEqual(rt.changes.map(c => c.name), [], 'importing and writing back unchanged inputs must not edit anything');
+  const r = core.patchCfg(files, core.computeAll({ ...base, pp: '5', fcc: '250', fsw: '10000', Vdc: '320' }), ['MOTOR_MCU_CFG_CARRIER_FREQ']);
+  const out = r.files[0].text;
+  assert.match(out, /#define MOTOR_CFG_POLE_PAIRS {10}\(5\)/);
+  assert.match(out, /#define MOTOR_CFG_POLE_PAIRS {10}\(99\)/, '#else branch untouched');
+  assert.match(out, /#define CURRENT_CFG_OMEGA {13}\(250\.0f\)/);
+  assert.match(out, /#define MOTOR_MCU_CFG_CARRIER_FREQ {4}\(8\.0f\)/, 'excluded macro keeps its value');
+  assert.match(out, /#define INVERTER_CFG_INPUT_V {10}\(320\.0f\)/);
+  assert.match(out, /#define MOTOR_SHUNT_TYPE_2_SHUNT {6}\/\* use two shunts \*\//, 'comments preserved');
+  assert.equal(out.split('\n').length, files[0].text.split('\n').length, 'line count unchanged');
+  // CURRENT_CFG_PI_INTEGRAL_LIMIT_VQ is an expression: it is never rewritten (here it follows INPUT_V automatically)
+  assert.match(out, /CURRENT_CFG_PI_INTEGRAL_LIMIT_VQ \(INVERTER_CFG_INPUT_V \* 0\.5f\)/);
+});
+
+test('load observer feed-forward: frequency-domain stiffness and simulated speed dip improve by the same factor', () => {
+  const a = core.computeAll({}), b = core.computeAll({ lto: 'on' });
+  const fd = a.spd.dist.peak0 / a.spd.dist.peak1, td = a.spd.sim.dip / b.spd.sim.dip;
+  assert.ok(fd > 1.5, `observer must help (${fd})`);
+  assert.ok(Math.abs(td / fd - 1) < 0.3, `time and frequency domain agree (${td} vs ${fd})`);
+  const d = a.spd.dist; assert.ok(d.m0[0] < 0.1 * d.peak0, 'integral action: no steady-state droop');
+});
+
 test('NTC divider (B model)', () => {
   const R = core.computeAll({ tmpTopo: 'tmpL', tot: '100' });
   const row = R.hw.out.tmp.find(r => r[0] === '过温阈值电压');
