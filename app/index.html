@@ -237,6 +237,16 @@ table.g tr.worst td{background:var(--bad-soft)}
   .repbody>section{break-inside:avoid-page}
   .plot svg{max-width:100%}
 }
+
+.chkhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chip{border-radius:4px;padding:1px 8px;font-size:12px;font-weight:600;letter-spacing:0}
+.chip.bad{background:var(--bad-soft);color:var(--bad)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.note.chk{display:flex;gap:10px;align-items:baseline}
+.note.chk b{white-space:nowrap}
+.chklink{border:0;background:none;color:var(--accent);cursor:pointer;font-size:12px;padding:0;white-space:nowrap;order:2;margin-left:auto}
+#chkList .btn{align-self:flex-start;margin-top:4px}
 pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:12px;overflow:auto;font:12px/1.55 var(--f-mono);margin:0;max-height:520px;white-space:pre}
 .codebar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
 .codebar .sp{flex:1}
@@ -372,7 +382,11 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
           <option value="pll">无感观测器 PLL (本固件)</option>
           <option value="enc">编码器位置差分 Δθ/Tω</option>
         </select></div></div>
-        <div class="hint">本固件为无感控制：速度取 PLL 估算值 (PLL_EST_OMEGA)，再经一阶滤波进入速度 PI。滤波截止填 0 表示不滤波。</div>
+        <div class="f"><label for="obsDyn">计入反电势观测器动态</label><div class="inp"><select id="obsDyn">
+          <option value="on">是 (E_OBS_OMEGA → PLL)</option>
+          <option value="off">否 (角度误差理想)</option>
+        </select></div></div>
+        <div class="hint">本固件为无感控制：速度取 PLL 估算值 (PLL_EST_OMEGA)，角度误差先经反电势观测器 (E_OBS_OMEGA)、再经 PLL，最后一阶滤波进入速度 PI。滤波截止填 0 表示不滤波。</div>
       </div>
     </details>
 
@@ -413,6 +427,11 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <div class="notes" id="notes"></div>
     </section>
 
+    <section class="derived" id="chkCard" aria-label="设计检查清单">
+      <h2 class="chkhead">设计检查清单 <span id="chkSum"></span></h2>
+      <div class="notes" id="chkList"><div class="hint">正在检查…</div></div>
+    </section>
+
     <div class="basebar" id="baseBar"></div>
 
     <div class="tabs" role="tablist">
@@ -422,6 +441,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <button role="tab" aria-selected="false" data-tab="obs">观测器</button>
       <button role="tab" aria-selected="false" data-tab="op">运行点 / 弱磁</button>
       <button role="tab" aria-selected="false" data-tab="hw">硬件换算</button>
+      <button role="tab" aria-selected="false" data-tab="id">参数辨识</button>
       <button role="tab" aria-selected="false" data-tab="exp">导入 / 导出</button>
     </div>
 
@@ -591,6 +611,15 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <div id="hwGroups" class="pane" style="padding:0"></div>
     </div>
 
+    <!-- identification -->
+    <div class="pane" data-pane="id" hidden>
+      <div class="card">
+        <h3>参数辨识 <span class="sub">由台架测量数据计算电机参数，按关系式实时换算，可一键填入左侧参数栏</span></h3>
+        <div class="hint">电流、电压按等幅值变换的相峰值约定；固件 (等功率) 里读到的 iq 需先除以 √1.5。默认数值由当前电机参数反算，用于核对流程。</div>
+      </div>
+      <div id="idGroups" class="pane" style="padding:0"></div>
+    </div>
+
     <!-- export -->
     <div class="pane" data-pane="exp" hidden>
       <div class="card">
@@ -661,6 +690,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <a href="#h-imp">14. 导入与对比</a>
       <a href="#h-tune">15. 自动整定与失配</a>
       <a href="#h-op">16. 运行点与弱磁</a>
+      <a href="#h-id">17. 参数辨识与检查清单</a>
     </nav>
     <article id="helpBody">
       <section id="h-arch">
@@ -940,6 +970,21 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         </table>
         <p>id–iq 平面中电压极限椭圆按忽略电阻绘制：\((L_di_d + \psi_f)^2 + (L_qi_q)^2 = (U_{lim}/\omega_e)^2\)；数值结果包含电阻。</p>
       </section>
+      <section id="h-id">
+        <h3>17. 参数辨识与设计检查清单</h3>
+        <h4>17.1 参数辨识（台架测试）</h4>
+        <table>
+          <tr><th>参数</th><th>测试</th><th>关系式</th></tr>
+          <tr><td>\(R_s\)</td><td>两相间通直流，测端电压</td><td>U 对 V∥W：\(R_s = (U - U_d)/(1.5I)\)；U–V：\(R_s = (U - U_d)/(2I)\)；铜温度换算 \(R_{T_t} = R_{T_m}\frac{234.5 + T_t}{234.5 + T_m}\)</td></tr>
+          <tr><td>\(L_d, L_q\)</td><td>锁转子，LCR 测线间电感随转角变化；或在 d、q 对齐位置加电压阶跃</td><td>\(L_d = L_{LL,min}/2\)，\(L_q = L_{LL,max}/2\)；阶跃法 \(L = \tau R_s\)（两种接法下 R、L 同比例，τ 不变）</td></tr>
+          <tr><td>\(\psi_f\)、极对数</td><td>开路反拖，测线电压有效值与电频率</td><td>\(\psi_f = \frac{\sqrt2\,U_{LL}}{\sqrt3\,\omega_e}\)，\(p = 60 f_e / n\)</td></tr>
+          <tr><td>\(J\)</td><td>恒定 iq 加速</td><td>\(J = (K_t i_q - T_L)\,\Delta t / \Delta\omega\)，\(K_t = 1.5p\psi_f\)</td></tr>
+          <tr><td>\(B\)、库仑摩擦</td><td>空载两个恒定转速下的稳态 iq</td><td>\(B = K_t (i_{q2} - i_{q1})/(\omega_2 - \omega_1)\)，\(T_c = K_t i_{q1} - B\omega_1\)</td></tr>
+        </table>
+        <p>电流按等幅值变换的相峰值；固件（等功率）中读到的 iq 需除以 \(\sqrt{1.5}\) 再填入。</p>
+        <h4>17.2 设计检查清单</h4>
+        <p>每次参数变化后（停止输入约 0.4 s）汇总各页的检查：电流环 / 速度环裕度及参数失配下的最差裕度、带宽比、PLL 与速度环的带宽关系、观测器带宽与离散极点、载波比、最高转速下的 dq 耦合、运行点电压能力，以及“硬件换算”中所有标黄、标红的项。点击条目右侧的链接跳到对应页签。报告中也会附上这份清单。</p>
+      </section>
     </article>
   </div>
 </div>
@@ -1123,9 +1168,11 @@ function compute() {
   renderPos();
   renderObs();
   renderHW(R.hw);
+  renderIdentify();
   renderExport();
   save();
   scheduleAnalysis();
+  scheduleChecks();
 }
 function renderBaseBar() {
   const el = $('baseBar');
@@ -1366,7 +1413,7 @@ function doTune(loop) {
 }
 
 /* ============ INPUT VALIDATION ============ */
-const OPTIONAL = new Set(['Vb', 'Ib', 'nb', 'ilimC', 'ilimS', 'opN', 'opT', 'simN']);
+const OPTIONAL = new Set(['Vb', 'Ib', 'nb', 'ilimC', 'ilimS', 'opN', 'opT', 'simN', 'idLR', 'idEf']);
 const BAD_FIELD = { Rs: 'Rs', Ld: 'Ld', Lq: 'Lq', 'ψf': 'fluxVal', J: 'Jm', Irated: 'Irated', Imax: 'Imax', Udc: 'Vdc', fpwm: 'fsw', nmax: 'nMax' };
 function markInvalid(bad) {
   const badIds = new Set((bad || []).map(n => BAD_FIELD[n]).filter(Boolean));
@@ -1495,6 +1542,7 @@ function buildReport() {
     sec('概要', kv([['生成时间', new Date().toLocaleString()], ['对比基准', BASE ? BASE.name : '无'], ['电机类型', P.type === 'ipm' ? 'IPMSM' : 'SPMSM'], ['坐标变换', P.tf === 'pow' ? '等功率 (瑞萨)' : '等幅值'],
       ['PI 实现', opt('piImpl')], ['速度反馈', opt('spdSrc')], ['电流环方法', opt('curMethod')], ['速度环方法', opt('spdMethod')]]) +
       `<div class="notes">${$('notes').innerHTML}</div>`),
+    sec('设计检查清单', `<div class="notes">${(CHK.length ? CHK : designChecks(readInputs())).map(c => `<div class="note ${c.level}"><b>${c.area}</b>　${c.text}</div>`).join('')}</div>`),
     sec('电机与控制器参数', kv(['Rs', 'Ld', 'Lq', 'pp', 'fluxVal', 'Jm', 'JL', 'Irated', 'Imax', 'nRated', 'nMax', 'Vdc', 'fsw', 'nd', 'Nw', 'ff'].map(id => [lbl(id), R.I[id]]))),
     sec('电流环', kv([['Kp d / q', `${fmt(R.cur.d.Kp, 5)} / ${fmt(R.cur.q.Kp, 5)} V/A`], ['Ki·Ts d / q', `${fmt(R.cur.d.Ki * P.Ts, 5)} / ${fmt(R.cur.q.Ki * P.Ts, 5)}`],
       ['相位裕度 d / q', `${fmt(R.cur.d.sw.pm, 4)}° / ${fmt(R.cur.q.sw.pm, 4)}°`], ['增益裕度 q', f(R.cur.q.sw.gm, 'dB')], ['闭环带宽 q', fmtHz(R.cur.q.sw.bw)], ['闭环 max|z|', fmt(Math.max(R.cur.d.rmax, R.cur.q.rmax), 4)]]) +
@@ -1511,6 +1559,67 @@ function buildReport() {
   $('report').hidden = false; document.body.style.overflow = 'hidden'; $('btnReportClose').focus();
 }
 function closeReport() { $('report').hidden = true; document.body.style.overflow = ''; $('btnReport').focus(); }
+
+/* ============ PARAMETER IDENTIFICATION TAB ============ */
+const ID_SEL = {
+  idRc: [['uvw', 'U 对 V∥W（等效 1.5·Rs）'], ['uv', 'U–V 两端（等效 2·Rs）']],
+  idLm: [['lcr', 'LCR 测线间电感 (最小 / 最大)'], ['step', '电压阶跃时间常数 τ']],
+};
+// test connection: star-connected winding, source between U and V (or V∥W)
+function connDiagram(conn, what) {
+  const t = SV.t, w = SV.w;
+  const leg = (x1, y1, x2, y2, name) => w([x1, y1], [x2, y2]) + `<rect class="cb" x="${(x1 + x2) / 2 - 7}" y="${(y1 + y2) / 2 - 14}" width="14" height="28" rx="3" transform="rotate(${Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI - 90} ${(x1 + x2) / 2} ${(y1 + y2) / 2})"/>` + t(x2 + (x2 < x1 ? -12 : x2 > x1 ? 12 : 0), y2 + (y2 < y1 ? -8 : 16), name);
+  let s = leg(200, 110, 200, 40, 'U') + leg(200, 110, 140, 175, 'V') + leg(200, 110, 260, 175, 'W') + SV.dot(200, 110) + t(225, 114, 'N', 'lv', 'start');
+  s += SV.box(360, 70, 140, 60, what, conn === 'uv' ? 'U → V' : 'U → V∥W');
+  s += w([200, 40], [200, 20], [430, 20], [430, 70]) + w([430, 130], [430, 205], [140, 205], [140, 175]);
+  if (conn !== 'uv') s += w([260, 175], [260, 205]) + SV.dot(260, 205);
+  else s += t(285, 196, 'W 悬空', 'lv', 'start');
+  return SV.svg(540, 225, s);
+}
+function buildIdentify() {
+  $('idGroups').innerHTML = IDG.map(gp => `<div class="card"><h3>${gp.title} <span class="sub">${gp.sub}</span></h3><div class="hwrow">
+    <div class="fields">${gp.fields.map(([id, lab, u, v]) => u === 'sel'
+      ? `<div class="f"><label for="${id}">${lab}</label><div class="inp"><select id="${id}">${ID_SEL[id].map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div></div>`
+      : fieldHTML(id, lab, u, v)).join('')}
+      <div class="row" style="margin-top:4px"><button class="btn primary" type="button" data-apply="${gp.id}">填入左侧电机参数</button></div></div>
+    <div class="hwright">${gp.id === 'idR' || gp.id === 'idL' ? `<div class="hwdia" id="iddia_${gp.id}"></div>` : ''}<div class="tblwrap"><table class="g" id="idt_${gp.id}"></table></div></div></div></div>`).join('');
+}
+let IDR = null;
+function renderIdentify() {
+  IDR = computeIdentify(readInputs());
+  const H = '<tr><th>结果</th><th>关系式</th><th style="text-align:right">数值</th><th>单位</th></tr>';
+  IDR.forEach(r => {
+    $('idt_' + r.id).innerHTML = H + r.rows.map(([n, fx, v, u, st]) => `<tr><td>${n}</td><td class="fx">${fx}</td><td class="v ${st ? 'st-' + st : ''}">${isFinite(v) ? fmt(v, 5) + cpBtn(fmt(v, 7)) : '—'}</td><td class="u">${u}</td></tr>`).join('');
+  });
+  const m = $('idLm').value;
+  ['idTd', 'idTq', 'idLR'].forEach(id => { $(id).closest('.f').hidden = m !== 'step'; });
+  ['idLmin', 'idLmax'].forEach(id => { $(id).closest('.f').hidden = m !== 'lcr'; });
+  $('iddia_idR').innerHTML = connDiagram($('idRc').value, '直流电源');
+  $('iddia_idL').innerHTML = m === 'lcr' ? connDiagram('uv', 'LCR 表') : connDiagram($('idRc').value, '电压阶跃');
+}
+function applyIdentify(gid) {
+  const r = (IDR || []).find(x => x.id === gid); if (!r) return;
+  const a = r.apply, set = (id, v) => { if (isFinite(v)) $(id).value = +(+v).toPrecision(6); }, done = [];
+  if ('Rs' in a) { set('Rs', a.Rs); done.push('Rs'); }
+  if ('Ld' in a) { set('Ld', a.Ld); done.push('Ld'); if ($('motorType').value === 'ipm') { set('Lq', a.Lq); done.push('Lq'); } }
+  if ('pp' in a) { set('pp', a.pp); done.push('极对数'); }
+  if ('psi' in a) { set('fluxVal', psiToField(a.psi, $('fluxMode').value, parseFloat($('pp').value))); done.push('磁链'); }
+  if ('J' in a) { set('Jm', a.J); $('JL').value = '0'; done.push('Jm（负载惯量置 0，J 为总惯量）'); }
+  if ('B' in a) { set('Bv', a.B); done.push('B'); }
+  syncSliders(); schedule(); toast('已填入：' + done.join('、'));
+}
+
+/* ============ DESIGN CHECKLIST ============ */
+let CHK = [], chkTimer = 0, chkAll = false;
+const AREA_TAB = { cur: '电流环', spd: '速度环', obs: '观测器', op: '运行点 / 弱磁', hw: '硬件换算' };
+function scheduleChecks() { clearTimeout(chkTimer); chkTimer = setTimeout(() => { CHK = designChecks(readInputs()); renderChecks(); }, 400); }
+function renderChecks() {
+  const n = l => CHK.filter(c => c.level === l).length;
+  $('chkSum').innerHTML = `<span class="chip bad">${n('bad')} 项需处理</span><span class="chip warn">${n('warn')} 项注意</span><span class="chip ok">${n('ok')} 项通过</span>`;
+  const list = chkAll ? CHK : CHK.filter(c => c.level !== 'ok');
+  $('chkList').innerHTML = (list.length ? list.map((c, i) => `<div class="note ${c.level} chk">${c.tab ? `<button type="button" class="chklink" data-tab-go="${c.tab}">${AREA_TAB[c.tab] || c.area} ›</button>` : ''}<b>${c.area}</b>　${c.text}</div>`).join('') : '<div class="note ok">没有需要处理或注意的项。</div>') +
+    `<button class="btn small" id="chkToggle" type="button">${chkAll ? '只看需处理 / 注意项' : `显示全部 (含 ${n('ok')} 项通过)`}</button>`;
+}
 
 /* ============ EXPORT ============ */
 let expFmt = 'c';
@@ -1612,7 +1721,7 @@ function copyText(txt, el) {
 }
 
 function init() {
-  buildHW();
+  buildHW(); buildIdentify();
   const missing = FIELDS.filter(id => !$(id));
   if (missing.length) console.error('fields without inputs:', missing);
   FIELDS.forEach(id => { $(id).value = DEFAULTS[id]; });
@@ -1623,6 +1732,11 @@ function init() {
     if (e.target.id === 'btnClearBase') { clearBaseline(); compute(); toast('已清除对比基准'); }
   });
   $('btnTuneC').addEventListener('click', () => doTune('cur'));
+  $('idGroups').addEventListener('click', e => { const b = e.target.closest('[data-apply]'); if (b) applyIdentify(b.dataset.apply); });
+  $('chkList').addEventListener('click', e => {
+    const go = e.target.closest('[data-tab-go]'); if (go) { const t = document.querySelector(`.tabs [data-tab="${go.dataset.tabGo}"]`); if (t) { t.click(); t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }
+    if (e.target.id === 'chkToggle') { chkAll = !chkAll; renderChecks(); }
+  });
   $('btnReport').addEventListener('click', buildReport);
   $('btnReportClose').addEventListener('click', closeReport);
   $('btnPrint').addEventListener('click', () => { try { window.print(); } catch (e) { } setTimeout(() => { $('repHint').textContent = '如果没有弹出打印对话框：当前环境不允许打印，请在安装的应用或浏览器中打开本工具后再打印。'; }, 600); });

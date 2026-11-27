@@ -288,10 +288,21 @@ function plantZ(P, L) {
 /* PLL speed estimator running every Ts (forward-Euler form, as used for sensorless angle/speed):
  *   ε = θ − θ̂,  ω̂ = Kp·ε + I,  I += Ki·Ts·ε,  θ̂ += Ts·ω̂
  * Its response from true to estimated speed is ω̂/ω = C(z) / (jω·(1 + C(z)·Ts·z⁻¹/(1 − z⁻¹))), C(z) = Kp + Ki·Ts·z⁻¹/(1 − z⁻¹). */
-function pllGains() { const wn = TAU * (parseFloat(IN.fpll) || 25), z = parseFloat(IN.zpll) || 1; return { Kp: 2 * z * wn, Ki: wn * wn, wn, z }; }
+/* The PLL's phase error comes from the back-EMF observer. For small errors the measured error is the true one passed
+ * through the observer response H(s) = (Kpo·s + Kio)/(Lq·s² + (Rs + Kpo)·s + Kio) (same gains as the observer tab). */
+function pllGains() {
+  const wn = TAU * (parseFloat(IN.fpll) || 25), z = parseFloat(IN.zpll) || 1;
+  const wo = TAU * (parseFloat(IN.femf) || 250), zo = parseFloat(IN.zemf) || 1, L = IN.Lq !== undefined ? parseFloat(IN.Lq) * 1e-3 : NaN;
+  return { Kp: 2 * z * wn, Ki: wn * wn, wn, z, obs: IN.obsDyn !== 'off' && L > 0 ? { wo, zo } : null };
+}
+function obsResp(P, o, w) {
+  const L = P.Lq, Kp = 2 * o.zo * o.wo * L - P.Rs, Ki = o.wo * o.wo * L;
+  return cdiv(C(Ki, Kp * w), C(Ki - L * w * w, (P.Rs + Kp) * w));
+}
 function pllResp(P, g, w) {
   const zi = cexpj(-w * P.Ts), integ = cdiv(zi, csub(ONE, zi));
-  const Cp = cadd(C(g.Kp), cscale(integ, g.Ki * P.Ts)), A = cscale(integ, P.Ts);
+  let Cp = cadd(C(g.Kp), cscale(integ, g.Ki * P.Ts)); const A = cscale(integ, P.Ts);
+  if (g.obs) Cp = cmul(Cp, obsResp(P, g.obs, w));
   return cdiv(Cp, cmul(C(0, w), cadd(ONE, cmul(Cp, A))));
 }
 function speedCtrl(P, cur, o = {}) {
@@ -591,6 +602,9 @@ function simCascade(P, cur, spd, pos, mode) {
   const piC = makePI(P.piImpl, q.Kp, q.Ki * Ts, q.b0, q.b1, rn ? P.ilimC : P.Vmax * 2);
   let iq = 0, w = 0, th = 0, thPrevW = 0, wf = 0, wmPrev = 0, iqRef = 0, wRef = 0;
   const pll = spd.pll || pllGains(); let thHat = 0, pllI = 0, wHat = 0;   // PLL on the electrical angle, runs every Ts
+  // back-EMF observer response on the angle error as a state-space filter: L·x'' + (R+Kpo)·x' + Kio·x = e, y = Kpo·x' + Kio·x
+  const ob = pll.obs ? (() => { const L = P.Lq, Kp = 2 * pll.obs.zo * pll.obs.wo * L - P.Rs, Ki = pll.obs.wo * pll.obs.wo * L; return { L, Kp, Ki, a1: P.Rs + Kp }; })() : null;
+  let ox = 0, ov = 0;
   const dq = [];
   let u = 0;
   const t = [], y = [], y2 = [], r = [];
@@ -604,7 +618,11 @@ function simCascade(P, cur, spd, pos, mode) {
     }
     if (mode === 'speed') wRef = step;
     // speed estimate: PLL (sensorless) every Ts, or position difference at the speed-loop rate
-    if (P.spdSrc === 'pll') { const eps = P.p * th - thHat; wHat = pll.Kp * eps + pllI; pllI += pll.Ki * Ts * eps; thHat += Ts * wHat; }
+    if (P.spdSrc === 'pll') {
+      let eps = P.p * th - thHat;
+      if (ob) { const h = Ts / 4; for (let j = 0; j < 4; j++) { const acc = (eps - ob.a1 * ov - ob.Ki * ox) / ob.L; ox += h * ov; ov += h * acc; } eps = ob.Kp * ov + ob.Ki * ox; }
+      wHat = pll.Kp * eps + pllI; pllI += pll.Ki * Ts * eps; thHat += Ts * wHat;
+    }
     // speed loop
     if (k % P.Nw === 0) {
       const wm = P.spdSrc === 'pll' ? wHat / P.p : (th - thPrevW) / P.Tw; thPrevW = th;
@@ -1110,14 +1128,113 @@ function renesasCfg(R) {
 }
 
 
+
+/* ============ PARAMETER IDENTIFICATION ============ */
+/* Bench tests → motor parameters (amplitude-invariant, phase peak). Each test returns result rows and the values it can apply. */
+const ID_CONN = { uv: { k: 2, name: 'U–V 两端' }, uvw: { k: 1.5, name: 'U 对 V∥W' } };
+const IDG = [
+  { id: 'idR', title: '定子电阻 Rs', sub: '直流法：注入直流电流，测端电压', fields: [
+    ['idRc', '接线方式', 'sel', 'uvw'], ['idRV', '端电压', 'V', '2.01'], ['idRI', '直流电流', 'A', '1'], ['idRd', '探头 / 器件压降', 'V', '0'],
+    ['idRTm', '测量时绕组温度', '°C', '25'], ['idRTt', '换算到温度', '°C', '25']],
+    calc: g => { const k = (ID_CONN[g.idRc] || ID_CONN.uvw).k, r = (g.idRV - g.idRd) / (k * g.idRI), rt = r * (234.5 + g.idRTt) / (234.5 + g.idRTm);
+      return { rows: [['等效电阻', '(U − Ud)/I', (g.idRV - g.idRd) / g.idRI, 'Ω'], ['相电阻 (测量温度)', `等效电阻 / ${k}`, r, 'Ω'], ['相电阻 (换算温度)', 'R·(234.5+Tt)/(234.5+Tm)', rt, 'Ω']], apply: { Rs: rt } }; } },
+  { id: 'idL', title: '电感 Ld / Lq', sub: '锁住转子：LCR 测线间电感随转角的最小 / 最大值，或在 d、q 对齐位置测电压阶跃的电流时间常数', fields: [
+    ['idLm', '方法', 'sel', 'lcr'], ['idLmin', '线间电感最小值', 'mH', '16.4'], ['idLmax', '线间电感最大值', 'mH', '22.46'],
+    ['idTd', 'd 轴对齐时间常数 τd', 'ms', '6.12'], ['idTq', 'q 轴对齐时间常数 τq', 'ms', '8.38'], ['idLR', '计算用相电阻 (空 = 左侧 Rs)', 'Ω', '']],
+    calc: (g, P) => {
+      if (g.idLm === 'step') { const r = g.idLR > 0 ? g.idLR : P.Rs; const ld = g.idTd * 1e-3 * r, lq = g.idTq * 1e-3 * r;
+        return { rows: [['相电阻', 'Rs', r, 'Ω'], ['Ld', 'τd·Rs', ld * 1e3, 'mH'], ['Lq', 'τq·Rs', lq * 1e3, 'mH'], ['凸极比', 'Lq/Ld', lq / ld, '—']], apply: { Ld: ld * 1e3, Lq: lq * 1e3 } }; }
+      const ld = g.idLmin / 2, lq = g.idLmax / 2;
+      return { rows: [['Ld', 'L线间,min / 2', ld, 'mH'], ['Lq', 'L线间,max / 2', lq, 'mH'], ['凸极比', 'Lq/Ld', lq / ld, '—']], apply: { Ld: ld, Lq: lq } };
+    } },
+  { id: 'idE', title: '永磁磁链 ψf 与极对数', sub: '反拖：电机开路，用外力拖动到恒定转速，测线电压有效值和电频率', fields: [
+    ['idEn', '拖动转速', 'rpm', '1000'], ['idEU', '线电压有效值', 'V', '27.02'], ['idEf', '电频率 (可空)', 'Hz', '50']],
+    calc: (g, P) => {
+      const pp = g.idEf > 0 ? 60 * g.idEf / g.idEn : P.p, we = g.idEf > 0 ? TAU * g.idEf : P.p * g.idEn * TAU / 60;
+      const psi = Math.SQRT2 * g.idEU / (Math.sqrt(3) * we);
+      const rows = [['电角速度', g.idEf > 0 ? '2π·fe' : 'p·2π·n/60', we, 'rad/s'], ['相反电势峰值', '√2·U线/√3', Math.SQRT2 * g.idEU / Math.sqrt(3), 'V'],
+        ['ψf (相峰值)', '√2·U线 / (√3·ωe)', psi, 'Wb'], ['ψa (等功率)', '√1.5·ψf', psi * Math.sqrt(1.5), 'Wb'], ['Ke', 'U线 / (n/1000)', g.idEU / g.idEn * 1000, 'Vrms/krpm']];
+      if (g.idEf > 0) rows.push(['极对数', '60·fe / n', pp, '对', Math.abs(pp - Math.round(pp)) < 0.05 ? 'ok' : 'warn']);
+      return { rows, apply: { psi, ...(g.idEf > 0 ? { pp: Math.round(pp) } : {}) } };
+    } },
+  { id: 'idJ', title: '转动惯量 J', sub: '加速法：恒定 iq 加速，记录两个转速之间的时间（摩擦 / 负载转矩已知时一并扣除）', fields: [
+    ['idJi', 'q 轴电流 (等幅值, 峰值)', 'A', '5'], ['idJn1', '起始转速', 'rpm', '0'], ['idJn2', '终止转速', 'rpm', '1000'], ['idJt', '加速时间', 's', '0.0199'], ['idJT', '期间摩擦 / 负载转矩', 'N·m', '0']],
+    calc: (g, P) => { const Te = P.Kt0 * g.idJi, dw = (g.idJn2 - g.idJn1) * TAU / 60, J = (Te - g.idJT) * g.idJt / dw;
+      return { rows: [['电磁转矩', 'Kt·iq', Te, 'N·m'], ['角速度变化', 'Δn·2π/60', dw, 'rad/s'], ['J (总)', '(Te − TL)·Δt / Δω', J, 'kg·m²'], ['J (总)', '×1e4', J * 1e4, 'kg·cm²']], apply: { J: J * 1e4 } }; } },
+  { id: 'idB', title: '粘滞摩擦 B 与库仑摩擦', sub: '两个恒定转速下的稳态 q 轴电流（空载）', fields: [
+    ['idBn1', '转速 1', 'rpm', '1000'], ['idBi1', 'q 轴电流 1 (等幅值)', 'A', '0.3'], ['idBn2', '转速 2', 'rpm', '3000'], ['idBi2', 'q 轴电流 2 (等幅值)', 'A', '0.5']],
+    calc: (g, P) => { const w1 = g.idBn1 * TAU / 60, w2 = g.idBn2 * TAU / 60, T1 = P.Kt0 * g.idBi1, T2 = P.Kt0 * g.idBi2, B = (T2 - T1) / (w2 - w1);
+      return { rows: [['转矩 1 / 2', 'Kt·iq', T1, 'N·m'], ['', '', T2, 'N·m'], ['粘滞系数 B', 'ΔT / Δω', B, 'N·m·s/rad'], ['库仑摩擦', 'T1 − B·ω1', T1 - B * w1, 'N·m']], apply: { B } }; } },
+];
+const ID_IDS = IDG.flatMap(gp => gp.fields.map(f => f[0]));
+function computeIdentify(inputs) {
+  IN = { ...DEFAULTS, ...inputs };
+  const P = readP();
+  return IDG.map(gp => {
+    const g = {}; gp.fields.forEach(([k, , u]) => { g[k] = u === 'sel' ? IN[k] : parseFloat(IN[k]); });
+    let r; try { r = gp.calc(g, P); } catch (e) { r = { rows: [], apply: {} }; }
+    return { id: gp.id, ...r };
+  });
+}
+/* converts a phase-peak ψf into the value of the flux field for the selected input mode */
+function psiToField(psi, mode, p) {
+  return mode === 'psi' ? psi : mode === 'psia' ? psi * Math.sqrt(1.5) : mode === 'ke' ? psi * Math.sqrt(3) * p * 1000 * TAU / 60 / Math.SQRT2 : psi * 1.5 * p;
+}
+
+/* ============ DESIGN CHECKLIST ============ */
+/* Gathers the checks spread over the tabs into one list. level: bad > warn > ok; tab names where to look. */
+function designChecks(inputs) {
+  const R = computeAll(inputs); if (R.bad) return [{ level: 'bad', area: '参数', text: `参数无效：${R.bad.join('、')}`, tab: null }];
+  const P = R.P, out = [], add = (level, area, text, tab) => out.push({ level, area, text, tab });
+  const pmT = parseFloat(R.I.tgtPmC) || 60, pmS = parseFloat(R.I.tgtPmS) || 50, gmT = parseFloat(R.I.tgtGm) || 6;
+  // current loop
+  const cpm = Math.min(R.cur.d.sw.pm, R.cur.q.sw.pm), cgm = Math.min(R.cur.d.sw.gm, R.cur.q.sw.gm);
+  add(cpm < 45 ? 'bad' : cpm < pmT ? 'warn' : 'ok', '电流环', `相位裕度 ${fmt(cpm, 3)}°（目标 ${pmT}°），增益裕度 ${fmt(cgm, 3)} dB，闭环带宽 ${fmtHz(R.cur.q.sw.bw)}。`, 'cur');
+  const rc = robustness(inputs, 'cur');
+  if (rc) add(rc.worst.pm < 45 ? 'bad' : rc.worst.pm < pmT ? 'warn' : 'ok', '电流环', `参数失配下最差相位裕度 ${fmt(rc.worst.pm, 3)}°。`, 'cur');
+  // speed loop
+  IN = { ...DEFAULTS, ...inputs };
+  add(R.spd.sw.pm < 35 ? 'bad' : R.spd.sw.pm < pmS ? 'warn' : 'ok', '速度环', `相位裕度 ${fmt(R.spd.sw.pm, 3)}°（目标 ${pmS}°），闭环带宽 ${fmtHz(R.spd.sw.bw)}。`, 'spd');
+  const rs = robustness(inputs, 'spd');
+  if (rs) add(rs.worst.pm < 30 ? 'bad' : rs.worst.pm < pmS ? 'warn' : 'ok', '速度环', `参数失配下最差相位裕度 ${fmt(rs.worst.pm, 3)}°，带宽 ${fmtHz(rs.worst.bwLo)} ~ ${fmtHz(rs.worst.bwHi)}。` + (rs.worst.pm < pmS ? '可用“按最差参数组合”自动整定。' : ''), 'spd');
+  const ratio = R.cur.q.sw.bw / R.spd.sw.bw;
+  add(ratio >= 5 ? 'ok' : ratio >= 3 ? 'warn' : 'bad', '速度环', `电流环 / 速度环闭环带宽比 ${fmt(ratio, 3)}（建议 ≥ 5）。`, 'spd');
+  if (P.spdSrc === 'pll') { const pllBw = R.obs.pll.bw, r2 = pllBw / Math.max(R.spd.sw.fc, 1e-9);
+    add(r2 >= 5 ? 'ok' : r2 >= 3 ? 'warn' : 'bad', '速度环', `PLL 带宽 ${fmtHz(pllBw)} 为速度环穿越频率的 ${fmt(r2, 3)} 倍（建议 ≥ 5，否则 PLL 滞后吃掉速度环裕度）。`, 'spd'); }
+  if (P.piImpl === 'rn' && P.ilimS < P.Imax * 0.999) add('ok', '速度环', `速度 PI 输出限幅 ${fmt(P.ilimS * P.kT, 4)} A (dq) 小于 Imax：加速和抗扰只能用到额定电流，没有过载能力（固件默认如此）。`, 'spd');
+  // observers
+  const feMax = P.p * P.nMax / 60, fo = R.obs.emf.wo / TAU;
+  const H = (() => { const e = R.obs.emf, w = P.p * P.nMax * TAU / 60, L = P.Lq; return cdiv(C(e.Ki, e.Kp * w), C(e.Ki - L * w * w, (P.Rs + e.Kp) * w)); })();
+  const lagMax = deg(carg(H)), gainMax = cabs(H);
+  add(fo / feMax >= 3 ? 'ok' : 'warn', '观测器', `反电势观测器 ${fmtHz(fo)}，为最高电频率 ${fmtHz(feMax)} 的 ${fmt(fo / feMax, 3)} 倍（αβ 实现建议 ≥ 3）。若在 αβ 坐标观测，最高转速时反电势相位误差 ${fmt(lagMax, 3)}°、幅值比 ${fmt(gainMax, 3)}；本固件在 dq 坐标观测，稳态反电势为直流量，此项影响小。`, 'obs');
+  const mx = p => Math.max(...p.map(cabs));
+  [['PLL', R.obs.pll.poles], ['反电势观测器', R.obs.emf.poles], ['负载观测器', R.obs.lo.poles]].forEach(([n, p]) => { const r = mx(p); if (r >= 0.98) add(r >= 1 ? 'bad' : 'warn', '观测器', `${n}离散极点 |z| = ${fmt(r, 4)}，${r >= 1 ? '不稳定' : '接近单位圆，响应慢'}。`, 'obs'); });
+  // sampling and coupling
+  const cr = P.fs / feMax;
+  add(cr >= 15 ? 'ok' : cr >= 10 ? 'warn' : 'bad', '离散化', `载波比 fs/fe,max = ${fmt(cr, 3)}（建议 ≥ 15；低于 10 时离散化误差与交叉耦合明显）。`, 'cur');
+  const amp = parseFloat(R.I.curStep) || 1;
+  const cp = (() => { const cur = designCurrent(P, { sim: false }); return simCurrentDQ(P, cur.d, cur.q, amp, P.p * P.nMax * TAU / 60, R.I.decoup || 'ref'); })();
+  const dev = cp.idDev / amp;
+  add(dev < 0.15 ? 'ok' : 'warn', '电流环', `最高转速 ${fmt(P.nMax, 4)} rpm 时 iq 阶跃 ${fmt(amp, 3)} A，id 最大偏离 ${fmt(cp.idDev, 3)} A（dq 交叉耦合，电流环页设“仿真转速”可查看）。阶跃是最严苛工况；速度环很慢时 iq 指令变化平缓，实际偏离小得多。提高电流环带宽可减小偏离。`, 'cur');
+  // operating point
+  const o = operatingAnalysis(P, R.hw);
+  add(o.nRatedMtpa >= P.nMax ? 'ok' : 'warn', '运行点', `不弱磁时额定转矩可维持到 ${isFinite(o.nRatedMtpa) ? fmt(o.nRatedMtpa, 4) + ' rpm' : '任意转速'}（最高转速 ${fmt(P.nMax, 4)} rpm）。`, 'op');
+  if (!o.op) add('bad', '运行点', `工作点 ${fmt(o.nOp, 4)} rpm / ${fmt(o.TOp, 4)} N·m 不可行。`, 'op');
+  // hardware rows flagged by the hardware tab
+  HWG.forEach(gp => (R.hw.out[gp.id] || []).forEach(r => { if (r[4] === 'bad' || r[4] === 'warn') add(r[4], '硬件 · ' + gp.title, `${r[0]}：${fmt(r[2], 4)} ${r[3]}（${r[1]}）`, 'hw'); }));
+  const rank = { bad: 0, warn: 1, ok: 2 };
+  return out.sort((a, b) => rank[a.level] - rank[b.level]);
+}
+
 /* ============ DEFAULTS & ENTRY POINT ============ */
-const BASE_DEFAULTS = {"motorType": "ipm", "tf": "pow", "zcc": "1", "zsc": "1", "Rs": "1.34", "Ld": "8.2", "Lq": "11.23", "pp": "3", "fluxMode": "psia", "fluxVal": "0.086", "Jm": "3", "JL": "0", "Bv": "0.0001", "Irated": "14.14", "Imax": "20", "nRated": "3000", "nMax": "3500", "Vdc": "310", "fsw": "5000", "upd": "single", "nd": "1", "disc": "be", "Nw": "5", "ff": "100", "Np": "10", "enc": "131072", "Vb": "", "Ib": "", "nb": "", "fcc": "20", "curMethod": "fw", "curStep": "4", "spdMethod": "fw", "fsc": "2", "Nz": "4", "aSO": "2.4", "ktMode": "id0", "spdStep": "100", "loadPct": "50", "fpc": "0.5", "vff": "0", "posStep": "30", "fpll": "25", "zpll": "1", "femf": "250", "zemf": "1", "smoEta": "1.5", "smoLpf": "1000", "flo": "50", "zlo": "0.707", "piImpl": "rn", "ilimC": "", "ilimS": "", "spdSrc": "pll", "tgtPmC": "60", "tgtPmS": "50", "tgtGm": "6", "rbL": "30", "rbRlo": "0.9", "rbRhi": "1.5", "rbJlo": "0.5", "rbJhi": "3", "rbKt": "10", "tuneMode": "worst", "opN": "", "opT": "", "simN": "0", "decoup": "ref"};
+const BASE_DEFAULTS = {"motorType": "ipm", "tf": "pow", "zcc": "1", "zsc": "1", "Rs": "1.34", "Ld": "8.2", "Lq": "11.23", "pp": "3", "fluxMode": "psia", "fluxVal": "0.086", "Jm": "3", "JL": "0", "Bv": "0.0001", "Irated": "14.14", "Imax": "20", "nRated": "3000", "nMax": "3500", "Vdc": "310", "fsw": "5000", "upd": "single", "nd": "1", "disc": "be", "Nw": "5", "ff": "100", "Np": "10", "enc": "131072", "Vb": "", "Ib": "", "nb": "", "fcc": "20", "curMethod": "fw", "curStep": "4", "spdMethod": "fw", "fsc": "2", "Nz": "4", "aSO": "2.4", "ktMode": "id0", "spdStep": "100", "loadPct": "50", "fpc": "0.5", "vff": "0", "posStep": "30", "fpll": "25", "zpll": "1", "femf": "250", "zemf": "1", "smoEta": "1.5", "smoLpf": "1000", "flo": "50", "zlo": "0.707", "piImpl": "rn", "ilimC": "", "ilimS": "", "spdSrc": "pll", "tgtPmC": "60", "tgtPmS": "50", "tgtGm": "6", "rbL": "30", "rbRlo": "0.9", "rbRhi": "1.5", "rbJlo": "0.5", "rbJhi": "3", "rbKt": "10", "tuneMode": "worst", "opN": "", "opT": "", "simN": "0", "decoup": "ref", "obsDyn": "on"};
 const DEFAULTS = (() => {
   const d = { ...BASE_DEFAULTS };
   HWG.forEach(gp => {
     (gp.common || []).forEach(f => { d[f[0]] = String(f[3]); });
     if (gp.topos) { d[gp.id + 'Topo'] = gp.topos[0].id; gp.topos.forEach(tp => tp.fields.forEach(f => { d[tp.id + '_' + f[0]] = String(f[3]); })); }
   });
+  IDG.forEach(gp => gp.fields.forEach(f => { d[f[0]] = String(f[3]); }));
   return d;
 })();
 const FIELD_IDS = Object.keys(DEFAULTS);
@@ -1327,6 +1444,6 @@ function cfgToInputs(vals, base) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULTS, FIELD_IDS, HWG, computeAll, exportCode, exportValues, renesasCfg, parseCfg, cfgToInputs, cfgSortFiles, cArith,
-    piCoef, plantZ, makePI, roots, sweep, fmt, cflt, TAU, autoTune, tradeoff, robustness, currentLoop, speedLoop, pllResp, simCurrentDQ, operatingAnalysis, computeOperating, minCurrentPoint, maxTorqueAt, mtpaAngle, opTorque, opVoltage,
+    piCoef, plantZ, makePI, roots, sweep, fmt, cflt, TAU, autoTune, tradeoff, robustness, currentLoop, speedLoop, pllResp, simCurrentDQ, operatingAnalysis, computeOperating, computeIdentify, psiToField, designChecks, IDG, pllGains, minCurrentPoint, maxTorqueAt, mtpaAngle, opTorque, opVoltage,
   };
 }
