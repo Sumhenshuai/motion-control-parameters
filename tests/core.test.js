@@ -120,6 +120,52 @@ test('tolerance analysis: shunt-only tolerance gives exactly that gain error', (
   close(isn.find(r => r[0] === '零点最坏偏移')[2], 2 * (1 + 10000 / 2210), 1e-9, 'Vos × (1 + Rf/Rn) in mV');
 });
 
+test('PLL speed estimate: unity at low frequency, matches continuous model well below fs', () => {
+  const R = core.computeAll({});
+  const g = R.spd.pll, P = R.P;
+  const lo = core.pllResp(P, g, TAU * 0.01);
+  close(Math.hypot(lo.re, lo.im), 1, 1e-4, '|ω̂/ω| at 0.01 Hz');
+  for (const f of [5, 20, 40]) {
+    const s = { re: 0, im: TAU * f }, num = { re: g.Ki, im: g.Kp * s.im }, den = { re: g.Ki - s.im * s.im, im: g.Kp * s.im };
+    const hc = Math.hypot(num.re, num.im) / Math.hypot(den.re, den.im);
+    const hd = core.pllResp(P, g, TAU * f);
+    close(Math.hypot(hd.re, hd.im), hc, 0.02, `|ω̂/ω| at ${f} Hz vs continuous`);
+  }
+});
+
+test('auto-tune lands on the phase-margin target and is the limit', () => {
+  for (const [loop, pm] of [['cur', 60], ['spd', 50]]) {
+    const r = core.autoTune({}, loop, pm, 6);
+    assert.ok(r && r.value > 0, `${loop} tuned`);
+    assert.ok(Math.abs(r.pm - pm) < 0.05, `${loop} PM ${r.pm}`);
+    assert.ok(r.gm >= 6);
+    const over = core.computeAll({ [r.key]: String(r.value * 1.05) });
+    const pmOver = loop === 'cur' ? Math.min(over.cur.d.sw.pm, over.cur.q.sw.pm) : over.spd.sw.pm;
+    assert.ok(pmOver < pm, `${loop}: 5% more bandwidth must break the target (${pmOver})`);
+  }
+});
+
+test('worst-case auto-tune meets the target at every plant corner', () => {
+  for (const [loop, pm] of [['cur', 60], ['spd', 50]]) {
+    const r = core.autoTune({}, loop, pm, 6, 'worst');
+    assert.ok(r && r.value > 0 && Math.abs(r.worstPm - pm) < 0.1, `${loop} worst PM ${r && r.worstPm}`);
+    const nom = core.autoTune({}, loop, pm, 6, 'nom');
+    assert.ok(r.value <= nom.value, 'robust tuning cannot exceed the nominal limit');
+    const rb = core.robustness({ [r.key]: String(r.value) }, loop);
+    assert.ok(rb.worst.pm >= pm - 0.5, `robustness table agrees (${rb.worst.pm})`);
+  }
+});
+
+test('robustness: nominal corner equals the designed loop; zero ranges collapse to nominal', () => {
+  const R = core.computeAll({});
+  const rc = core.robustness({}, 'cur');
+  assert.ok(Math.abs(rc.nominal.pm - Math.min(R.cur.d.sw.pm, R.cur.q.sw.pm)) < 0.05);
+  assert.ok(rc.worst.pm <= rc.nominal.pm);
+  const rs0 = core.robustness({ rbL: '0', rbKt: '0', rbJlo: '1', rbJhi: '1', rbRlo: '1', rbRhi: '1' }, 'spd');
+  assert.equal(rs0.rows.length, 1);
+  assert.ok(Math.abs(rs0.worst.pm - R.spd.sw.pm) < 0.2, `${rs0.worst.pm} vs ${R.spd.sw.pm}`);
+});
+
 test('NTC divider (B model)', () => {
   const R = core.computeAll({ tmpTopo: 'tmpL', tot: '100' });
   const row = R.hw.out.tmp.find(r => r[0] === '过温阈值电压');
