@@ -201,6 +201,25 @@ table.g td:first-child{white-space:nowrap}
 table.g .dl{display:inline-block;margin-left:6px;font-size:11px;color:var(--accent)}
 textarea{width:100%;border:1px solid var(--line);border-radius:6px;background:var(--panel-2);padding:8px;font:12px/1.5 var(--f-mono);resize:vertical}
 textarea:focus{border-color:var(--accent);outline:none}
+
+.klabel{font-size:12.5px;color:var(--muted)}
+.rbtbl{max-height:300px;overflow:auto}
+.rbtbl table.g td,.rbtbl table.g th{padding:3px 8px}
+table.g tr.worst td{background:var(--bad-soft)}
+.inp.inval{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad) inset}
+.inp input+input{border-left:1px solid var(--line)}
+.plotbox{position:relative}
+.plotbox .tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:11.5px/1.45 var(--f-mono);color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.12);white-space:nowrap;z-index:5}
+.plotbox .tip i{display:inline-block;width:10px;height:2px;vertical-align:middle;margin-right:5px}
+.viewseg{display:none}
+@media (max-width:900px){
+  .viewseg{display:flex;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:40;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
+  .viewseg button{border:0;background:transparent;padding:7px 20px;border-radius:999px;font-size:14px;cursor:pointer;color:var(--muted)}
+  .viewseg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+  body[data-view="results"] .rack{display:none}
+  body[data-view="params"] .main{display:none}
+  .wrap{padding-bottom:calc(70px + env(safe-area-inset-bottom,0px))}
+}
 pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:12px;overflow:auto;font:12px/1.55 var(--f-mono);margin:0;max-height:520px;white-space:pre}
 .codebar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
 .codebar .sp{flex:1}
@@ -246,6 +265,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
   <button class="btn primary" id="btnHelp" type="button">帮助 / 公式</button>
 </header>
 
+<nav class="viewseg" id="viewSeg" aria-label="切换视图"><button type="button" data-view="params">参数</button><button type="button" data-view="results">结果</button></nav>
 <div class="wrap">
   <!-- ================= parameter rack ================= -->
   <aside class="rack" id="rack">
@@ -330,7 +350,29 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <div class="f"><label for="ff"><b>fω,f</b>速度反馈滤波截止</label><div class="inp"><input id="ff" type="number" step="any" value="100"><span class="u">Hz</span></div></div>
         <div class="f"><label for="Np"><b>Nθ</b>位置环分频</label><div class="inp"><input id="Np" type="number" step="1" min="1" value="10"><span class="u">× Ts</span></div></div>
         <div class="f"><label for="enc"><b>Nenc</b>编码器分辨率</label><div class="inp"><input id="enc" type="number" step="1" value="131072"><span class="u">cnt/rev</span></div></div>
-        <div class="hint">速度由位置差分 Δθ/Tω 计算，经一阶 IIR 滤波；滤波截止填 0 表示不滤波。</div>
+        <div class="f"><label for="spdSrc">速度反馈来源</label><div class="inp"><select id="spdSrc">
+          <option value="pll">无感观测器 PLL (本固件)</option>
+          <option value="enc">编码器位置差分 Δθ/Tω</option>
+        </select></div></div>
+        <div class="hint">本固件为无感控制：速度取 PLL 估算值 (PLL_EST_OMEGA)，再经一阶滤波进入速度 PI。滤波截止填 0 表示不滤波。</div>
+      </div>
+    </details>
+
+    <details>
+      <summary>整定目标与鲁棒性<span class="tag">自动整定 · 参数失配</span></summary>
+      <div class="fields">
+        <div class="f"><label for="tgtPmC"><b>PMi</b>电流环目标相位裕度</label><div class="inp"><input id="tgtPmC" type="number" step="any"><span class="u">°</span></div></div>
+        <div class="f"><label for="tgtPmS"><b>PMω</b>速度环目标相位裕度</label><div class="inp"><input id="tgtPmS" type="number" step="any"><span class="u">°</span></div></div>
+        <div class="f"><label for="tgtGm"><b>GM</b>增益裕度下限</label><div class="inp"><input id="tgtGm" type="number" step="any"><span class="u">dB</span></div></div>
+        <div class="f"><label for="tuneMode">自动整定依据</label><div class="inp"><select id="tuneMode">
+          <option value="worst">最差参数组合 (推荐)</option>
+          <option value="nom">标称参数</option>
+        </select></div></div>
+        <div class="hint">鲁棒性：控制器按标称参数设计不变，被控对象参数在下列范围内变化（电感饱和、绕组发热、负载惯量未知等）。</div>
+        <div class="f"><label for="rbL"><b>ΔL</b>电感变化</label><div class="inp"><input id="rbL" type="number" step="any"><span class="u">± %</span></div></div>
+        <div class="f"><label for="rbRlo"><b>R</b>电阻 最小 / 最大倍数</label><div class="inp"><input id="rbRlo" type="number" step="any"><input id="rbRhi" type="number" step="any"><span class="u">×</span></div></div>
+        <div class="f"><label for="rbJlo"><b>J</b>惯量 最小 / 最大倍数</label><div class="inp"><input id="rbJlo" type="number" step="any"><input id="rbJhi" type="number" step="any"><span class="u">×</span></div></div>
+        <div class="f"><label for="rbKt"><b>ΔKt</b>转矩常数变化</label><div class="inp"><input id="rbKt" type="number" step="any"><span class="u">± %</span></div></div>
       </div>
     </details>
 
@@ -380,6 +422,9 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
             <span class="hint" id="curMethodHint"></span></div>
           <div class="knob" id="kZc"><label for="zcc">阻尼比 ζ (CURRENT_CFG_ZETA)</label>
             <div class="row"><div class="inp" style="width:100%"><input id="zcc" type="number" step="any" value="1"><span class="u">ζ</span></div></div></div>
+          <div class="knob"><span class="klabel">自动整定</span>
+            <div class="row"><button class="btn primary" id="btnTuneC" type="button">按目标裕度整定</button></div>
+            <span class="hint" id="tuneCHint"></span></div>
           <div class="knob"><label for="curStep">阶跃仿真幅值</label>
             <div class="row"><div class="inp" style="width:100%"><input id="curStep" type="number" step="any" value="4"><span class="u">A</span></div></div></div>
         </div>
@@ -392,6 +437,13 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <div class="chart"><div class="ct"><b>开环 Bode (z = e^{jωTs})</b><span class="lg"><i style="border-color:var(--ch1)"></i>d 轴</span><span class="lg"><i style="border-color:var(--ch2)"></i>q 轴</span><span class="lg"><i class="d" style="border-color:var(--ref)"></i>Nyquist fs/2</span></div><div class="plot" id="curBode"></div></div>
         <div class="chart"><div class="ct"><b>阶跃响应 (采样控制器 + 连续对象)</b><span class="lg"><i style="border-color:var(--ch1)"></i>id</span><span class="lg"><i style="border-color:var(--ch2)"></i>iq</span><span class="lg"><i class="d" style="border-color:var(--ref)"></i>指令</span></div><div class="plot" id="curStepP"></div></div>
       </div></div>
+      <div class="card">
+        <h3>带宽–裕度权衡与参数失配 <span class="sub">只用频域分析；目标与变化范围在左侧“整定目标与鲁棒性”中设置</span></h3>
+        <div class="two">
+          <div class="chart"><div class="ct"><b>裕度随电流环带宽参数变化</b><span class="lg"><i style="border-color:var(--ch1)"></i>相位裕度</span><span class="lg"><i style="border-color:var(--ch2)"></i>增益裕度 (右轴)</span><span class="lg"><i class="d" style="border-color:var(--ok)"></i>目标</span><span class="lg"><i class="d" style="border-color:var(--accent)"></i>当前</span></div><div class="plot" id="curTrade"></div></div>
+          <div><div class="metrics" id="curRbMet"></div><div class="tblwrap rbtbl"><table class="g" id="curRbTbl"></table></div></div>
+        </div>
+      </div>
     </div>
 
     <!-- speed loop -->
@@ -418,6 +470,9 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
               <option value="id0">id = 0 控制：Kt = 1.5pψf</option>
               <option value="mtpa">MTPA @ 额定电流：Kt,eff = Te/Is</option>
             </select></div></div>
+          <div class="knob"><span class="klabel">自动整定</span>
+            <div class="row"><button class="btn primary" id="btnTuneS" type="button">按目标裕度整定</button></div>
+            <span class="hint" id="tuneSHint"></span></div>
           <div class="knob"><label for="spdStep">仿真：速度阶跃 / 负载阶跃</label>
             <div class="row"><div class="inp"><input id="spdStep" type="number" step="any" value="100"><span class="u">rpm</span></div><div class="inp"><input id="loadPct" type="number" step="any" value="50"><span class="u">% TN</span></div></div></div>
         </div>
@@ -430,6 +485,13 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <div class="chart"><div class="ct"><b>速度开环 Bode</b><span class="lg"><i style="border-color:var(--ch1)"></i>L(jω)</span><span class="lg"><i style="border-color:var(--ch3)"></i>闭环 ω/ω*</span></div><div class="plot" id="spdBode"></div></div>
         <div class="chart"><div class="ct"><b>速度阶跃 + 负载扰动</b><span class="lg"><i style="border-color:var(--ch1)"></i>n (rpm)</span><span class="lg"><i style="border-color:var(--ch2)"></i>iq (A, 右轴比例)</span><span class="lg"><i class="d" style="border-color:var(--ref)"></i>指令</span></div><div class="plot" id="spdStepP"></div></div>
       </div></div>
+      <div class="card">
+        <h3>带宽–裕度权衡与参数失配 <span class="sub">只用频域分析；目标与变化范围在左侧“整定目标与鲁棒性”中设置</span></h3>
+        <div class="two">
+          <div class="chart"><div class="ct"><b>裕度随速度环带宽参数变化</b><span class="lg"><i style="border-color:var(--ch1)"></i>相位裕度</span><span class="lg"><i style="border-color:var(--ch2)"></i>增益裕度 (右轴)</span><span class="lg"><i class="d" style="border-color:var(--ok)"></i>目标</span><span class="lg"><i class="d" style="border-color:var(--accent)"></i>当前</span></div><div class="plot" id="spdTrade"></div></div>
+          <div><div class="metrics" id="spdRbMet"></div><div class="tblwrap rbtbl"><table class="g" id="spdRbTbl"></table></div></div>
+        </div>
+      </div>
     </div>
 
     <!-- position loop -->
@@ -499,6 +561,19 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <div id="impResult" class="pane" style="padding-top:8px"></div>
       </div>
       <div class="card">
+        <h3>方案管理 <span class="sub">保存在本机浏览器；可导出为 JSON 文件在电脑和手机之间传递</span></h3>
+        <div class="codebar">
+          <div class="inp" style="flex:1;min-width:180px"><input id="schName" type="text" placeholder="方案名称，例如：TG55L 实测参数"></div>
+          <button class="btn primary" id="btnSchSave" type="button">保存当前参数</button>
+        </div>
+        <div class="tblwrap"><table class="g" id="schTbl"></table></div>
+        <div class="codebar" style="margin-top:8px">
+          <button class="btn" id="btnSchDl" type="button">下载全部方案 (JSON)</button>
+          <button class="btn" id="btnSchCopy" type="button">复制全部方案 JSON</button>
+          <label class="btn" for="schFile">导入方案文件…</label><input type="file" id="schFile" accept=".json,application/json" hidden>
+        </div>
+      </div>
+      <div class="card">
         <div class="codebar">
           <div class="seg" role="group" aria-label="导出格式" id="expSeg">
             <button type="button" data-fmt="c" aria-pressed="true">C 头文件</button>
@@ -534,6 +609,7 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
       <a href="#h-fw">12. 瑞萨固件公式对照</a>
       <a href="#h-tol">13. 容差与最坏情况</a>
       <a href="#h-imp">14. 导入与对比</a>
+      <a href="#h-tune">15. 自动整定与失配</a>
     </nav>
     <article id="helpBody">
       <section id="h-arch">
@@ -663,7 +739,12 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         <h4>5.2 对称最优</h4>
         <div class="eq">\[ T_\Sigma = \frac{1}{\omega_{cc}} + \frac{1}{\omega_f} + T_\omega,\qquad K_{p\omega} = \frac{J}{a K_t T_\Sigma},\qquad T_i = a^2T_\Sigma,\qquad K_{i\omega} = \frac{K_{p\omega}}{T_i} \]</div>
         <p>穿越频率 \(\omega_c = 1/(aT_\Sigma)\)，相位裕度 \(\mathrm{PM} = \arcsin\frac{a^2-1}{a^2+1}\)。a = 2 时 PM ≈ 37°，a = 2.4 时约 44°，a = 3 时约 53°。</p>
-        <h4>5.3 离散实现要点</h4>
+        <h4>5.3 速度反馈来源</h4>
+        <p>编码器：差分测速 \(\omega[k] = (\theta[k]-\theta[k-1])/T_\omega\)，等效约 \(T_\omega/2\) 延时。无感（本固件）：速度取反电势观测器 + PLL 的估算值，PLL 每个 \(T_s\) 执行一次：</p>
+        <div class="eq">\[ \varepsilon = \theta - \hat\theta,\quad \hat\omega = K_p\varepsilon + I,\quad I \mathrel{+}= K_iT_s\varepsilon,\quad \hat\theta \mathrel{+}= T_s\hat\omega \]</div>
+        <div class="eq">\[ \frac{\hat\omega}{\omega} = \frac{C(z)}{j\omega\,\bigl(1 + C(z)\,\frac{T_sz^{-1}}{1-z^{-1}}\bigr)},\qquad C(z) = K_p + \frac{K_iT_sz^{-1}}{1-z^{-1}} \]</div>
+        <p>PLL 自然频率越低，速度反馈的相位滞后越大，速度环可用带宽越低。工具的速度环频域分析与仿真都包含这一环节（观测器角度误差的动态暂未计入）。</p>
+        <h4>5.4 离散实现要点</h4>
         <p>差分测速 \(\omega[k] = (\theta[k] - \theta[k-1])/T_\omega\) 等效平均滤波（约 \(T_\omega/2\) 延时），一阶 IIR 滤波 \(y \mathrel{+}= \alpha(x - y)\)，\(\alpha = 1 - e^{-\omega_f T_\omega}\)。PI 离散用 \(K_{i\omega}T_\omega\)。输出 \(i_q^*\) 限幅于 \(I_{max}\)，并做积分抗饱和。</p>
       </section>
 
@@ -775,10 +856,19 @@ pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:6p
         </table>
       </section>
 
+
       <section id="h-imp">
         <h3>14. 导入固件配置与方案对比</h3>
         <p>“导入 / 导出”页可选择或粘贴 <span class="mono">r_motor_targetmotor_cfg.h</span>、<span class="mono">r_motor_inverter_cfg.h</span>、<span class="mono">r_motor_module_cfg.h</span>。解析器处理注释、<span class="mono">#if / #ifdef / #elif / #else</span> 条件编译、数值后缀 (f / U)、十六进制和宏表达式（例如 <span class="mono">INVERTER_CFG_INPUT_V * 0.5f</span>），不执行任何代码。导入后按单位换算填入（H → mH、Arms → 峰值、kHz → Hz 等），结果表列出每个宏填入了哪个参数。</p>
         <p>勾选“同时设为对比基准”后，导入的固件参数成为基准。之后修改任何参数，各环路页的 Bode 图、阶跃响应以虚线显示基准，参数表增加“基准 / 变化”列，指标卡显示基准值。也可以随时把当前参数设为基准。</p>
+      </section>
+
+      <section id="h-tune">
+        <h3>15. 自动整定与参数失配</h3>
+        <p><b>自动整定</b>：在电流环 / 速度环页点“按目标裕度整定”，工具在对数网格上扫描带宽参数（电流环 fcc 或 fn，速度环 fsc 或 fn，对称最优为 a），找到仍满足 PM ≥ 目标、GM ≥ 下限、闭环极点在单位圆内的最大带宽，再二分细化。只用离散频域分析，不跑时域仿真。</p>
+        <p><b>整定依据</b>：选“标称参数”时只要求标称对象满足目标；选“最差参数组合”时要求鲁棒性范围内的每一个参数组合都满足目标，结果更保守。电机电感随电流饱和下降、电阻随温度上升、压缩机负载惯量未知时，建议用最差组合。</p>
+        <p><b>带宽–裕度权衡</b>：曲线给出相位裕度、增益裕度随带宽参数的变化，绿色虚线为目标，蓝色虚线为当前值。</p>
+        <p><b>参数失配</b>：控制器按标称参数设计后保持不变，被控对象取 \(L\times(1\pm\Delta L)\)、\(R\times[R_{min}, R_{max}]\)、\(J\times[J_{min}, J_{max}]\)、\(K_t\times(1\pm\Delta K_t)\) 的全部组合，表中按相位裕度从低到高排列，第一行为最差组合。瑞萨固件公式中 \(K_p\propto J\)，实际惯量小于设定值时开环增益升高、穿越频率右移，最差相位裕度通常出现在 \(J\) 最小、\(K_t\) 最大处。</p>
       </section>
 
     </article>
@@ -801,6 +891,25 @@ function niceStep(span, count) {
 function ticksLin(min, max, count) { const s = niceStep(max - min || 1, count); const t = []; for (let v = Math.ceil(min / s - 1e-9) * s; v <= max + s * 1e-9; v += s) t.push(+v.toFixed(10)); return t; }
 const fmtTick = v => { const a = Math.abs(v); if (a >= 1000) return (+(v / 1000).toPrecision(3)) + 'k'; if (a > 0 && a < 0.01) return v.toExponential(0); return String(+v.toPrecision(3)); };
 
+/* Chart readout: each plot registers its scale and named series; pointer moves show a crosshair and the values. */
+const PLOTS = {};
+function nearestIdx(xs, x) { let lo = 0, hi = xs.length - 1; while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (xs[mid] < x) lo = mid; else hi = mid; } return Math.abs(xs[lo] - x) <= Math.abs(xs[hi] - x) ? lo : hi; }
+function plotHover(e) {
+  const box = e.target.closest && e.target.closest('.plotbox'); if (!box) return;
+  const pl = PLOTS[box.dataset.plot], svg = box.querySelector('svg'); if (!pl || !svg) return;
+  const rc = svg.getBoundingClientRect(), px = (e.clientX - rc.left) * pl.W / rc.width;
+  const hv = svg.querySelector('.hv'); let tip = box.querySelector('.tip');
+  if (px < pl.m.l || px > pl.m.l + pl.iw || !pl.series.length) { hv.setAttribute('visibility', 'hidden'); if (tip) tip.remove(); return; }
+  const fr = (px - pl.m.l) / pl.iw;
+  const x = pl.xlog ? Math.pow(10, Math.log10(pl.xmin) + fr * (Math.log10(pl.xmax) - Math.log10(pl.xmin))) : pl.xmin + fr * (pl.xmax - pl.xmin);
+  hv.setAttribute('x1', px); hv.setAttribute('x2', px); hv.setAttribute('visibility', 'visible');
+  if (!tip) { tip = document.createElement('div'); tip.className = 'tip'; box.appendChild(tip); }
+  const xs = pl.xlog ? (x >= 1000 ? fmt(x / 1000, 4) + ' k' : fmt(x, 4)) : fmt(x * pl.xscale, 4);
+  tip.innerHTML = `<div><b>${pl.xname} = ${xs} ${pl.xunit}</b></div>` +
+    pl.series.map(s => { if (!s.x.length || x < s.x[0] || x > s.x[s.x.length - 1]) return ''; const i = nearestIdx(s.x, x); if (!isFinite(s.y[i])) return ''; return `<div><i style="background:${s.c}${s.dash ? ';opacity:.6' : ''}"></i>${s.n}: ${fmt(s.y[i], 4)}</div>`; }).join('');
+  const left = (px / pl.W) * rc.width; tip.style.left = (left > rc.width / 2 ? left - tip.offsetWidth - 10 : left + 10) + 'px'; tip.style.top = '8px';
+}
+function plotLeave(e) { const box = e.target.closest && e.target.closest('.plotbox'); if (!box) return; const hv = box.querySelector('.hv'); if (hv) hv.setAttribute('visibility', 'hidden'); const t = box.querySelector('.tip'); if (t) t.remove(); }
 function plotSVG(el, o) {
   const W = Math.max(280, el.clientWidth || 600), H = o.h || 210;
   const m = { l: 50, r: o.r2 ? 46 : 12, t: 10, b: o.xlabel ? 34 : 22 };
@@ -838,7 +947,8 @@ function plotSVG(el, o) {
   let Y2 = null;
   const s2 = o.series.filter(s => s.y2);
   if (s2.length) {
-    let lo = Infinity, hi = -Infinity; s2.forEach(s => s.y.forEach(v => { lo = Math.min(lo, v); hi = Math.max(hi, v); }));
+    let lo = Infinity, hi = -Infinity; s2.forEach(s => s.y.forEach(v => { if (isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }));
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
     const pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
     Y2 = v => m.t + (1 - (v - lo) / (hi - lo)) * ih;
     ticksLin(lo, hi, 4).forEach(v => { const y = Y2(v); if (y < m.t || y > m.t + ih) return; g += `<text x="${m.l + iw + 6}" y="${(y + 3.5).toFixed(1)}" text-anchor="start" style="fill:var(--ch2)">${fmtTick(v)}</text>`; });
@@ -857,7 +967,8 @@ function plotSVG(el, o) {
   g += '</g>';
   if (o.ylabel) g += `<text x="12" y="${m.t + ih / 2}" transform="rotate(-90 12 ${m.t + ih / 2})" text-anchor="middle">${o.ylabel}</text>`;
   if (o.xlabel) g += `<text x="${m.l + iw / 2}" y="${H - 4}" text-anchor="middle">${o.xlabel}</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${o.aria || ''}">${g}</svg>`;
+  PLOTS[el.id] = { W, H, m, iw, ih, xmin, xmax, xlog: !!o.xlog, xscale: o.xscale || 1, xname: o.xname || (o.xlabel ? o.xlabel.replace(/\s*\S+$/, '') : (o.xlog ? '频率' : 'x')), xunit: o.xunit !== undefined ? o.xunit : (o.xlabel ? o.xlabel.split(' ').pop() : (o.xlog ? 'Hz' : '')), series: o.series.filter(s => s.n) };
+  return `<div class="plotbox" data-plot="${el.id}"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${o.aria || ''}">${g}<line class="hv" x1="0" x2="0" y1="${m.t}" y2="${m.t + ih}" stroke="var(--ink)" stroke-opacity="0.45" stroke-dasharray="3 3" visibility="hidden"/></svg></div>`;
 }
 const phaseTicks = (lo, hi) => { const span = hi - lo; const st = span > 540 ? 180 : span > 240 ? 90 : span > 100 ? 45 : 30; const t = []; for (let v = Math.ceil(lo / st) * st; v <= hi; v += st) t.push(v); if (t.length < 2) t.push(t[0] + st); return t; };
 
@@ -866,9 +977,9 @@ function bode(el, list, opt = {}) {
   const mag = [], ph = [];
   list.forEach(s => {
     const st = { c: s.c, dash: s.dash, op: s.op, w: s.w };
-    mag.push({ x: s.sw.f, y: s.sw.mag, ...st });
-    if (s.cl) mag.push({ x: s.sw.f, y: s.sw.cl, c: 'var(--ch3)', w: 1.3 });
-    ph.push({ x: s.sw.f, y: s.sw.ph, ...st });
+    mag.push({ x: s.sw.f, y: s.sw.mag, ...st, n: (s.n || '开环') + ' dB' });
+    if (s.cl) mag.push({ x: s.sw.f, y: s.sw.cl, c: 'var(--ch3)', w: 1.3, n: '闭环 dB' });
+    ph.push({ x: s.sw.f, y: s.sw.ph, ...st, n: (s.n || '开环') + ' °' });
   });
   const vl = (opt.vlines || []);
   const pts = list.filter(s => isFinite(s.sw.fc) && !s.dash).map(s => ({ x: s.sw.fc, y: 0, c: s.c }));
@@ -933,7 +1044,8 @@ let R = null, RB = null, BASE = null;
 function readInputs() { const o = {}; FIELDS.forEach(id => { o[id] = $(id).value; }); return o; }
 function compute() {
   R = computeAll(readInputs());
-  if (R.bad) { $('notes').innerHTML = `<div class="note bad">以下参数必须为正数：${R.bad.join('、')}。修正后结果自动更新。</div>`; return; }
+  markInvalid(R.bad);
+  if (R.bad) { $('notes').innerHTML = `<div class="note bad">以下参数必须为正数：${R.bad.join('、')}（输入框已标红）。修正后结果自动更新。</div>`; return; }
   RB = BASE ? computeAll(BASE.inputs) : null;
   renderBaseBar();
   renderDerived(R.P, R.cur, R.spd, R.pos);
@@ -944,6 +1056,7 @@ function compute() {
   renderHW(R.hw);
   renderExport();
   save();
+  scheduleAnalysis();
 }
 function renderBaseBar() {
   const el = $('baseBar');
@@ -1024,11 +1137,11 @@ function renderCurrent() {
     metric('上升时间 q', fmtT(q.met.tr), '', bm(b => fmtT(b.q.met.tr))) +
     metric('闭环 max|z|', fmt(Math.max(d.rmax, q.rmax), 4), Math.max(d.rmax, q.rmax) < 1 ? 'ok' : 'bad', bm(b => fmt(Math.max(b.d.rmax, b.q.rmax), 4)));
   zplane($('curZ'), [{ p: d.poles, c: 'var(--ch1)', name: 'd 轴闭环' }, { p: q.poles, c: 'var(--ch2)', name: 'q 轴闭环' }, ...(B ? [{ p: B.q.poles, c: 'var(--ref)', name: '基准 q 轴', ring: true }] : [])]);
-  bode($('curBode'), [{ sw: d.sw, c: 'var(--ch1)' }, { sw: q.sw, c: 'var(--ch2)' }, ...(B ? [{ sw: B.q.sw, c: 'var(--ch2)', ...BASE_STYLE }] : [])], { vlines: [{ v: cur.fcc, c: 'var(--accent)', label: 'fcc' }] });
+  bode($('curBode'), [{ sw: d.sw, c: 'var(--ch1)', n: 'd 轴' }, { sw: q.sw, c: 'var(--ch2)', n: 'q 轴' }, ...(B ? [{ sw: B.q.sw, c: 'var(--ch2)', ...BASE_STYLE, n: '基准 q' }] : [])], { vlines: [{ v: cur.fcc, c: 'var(--accent)', label: 'fcc' }] });
   const el = $('curStepP'), tEnd = Math.max(d.sim.t[d.sim.t.length - 1], B ? B.d.sim.t[B.d.sim.t.length - 1] : 0);
   el.innerHTML = plotSVG(el, { xmin: 0, xmax: tEnd, xscale: 1000, xlabel: '时间 ms', ylabel: '电流 A', h: 340,
-    series: [{ x: [0, tEnd], y: [d.sim.amp, d.sim.amp], c: 'var(--ref)', dash: '2 3', w: 1.1 }, { x: d.sim.t, y: d.sim.y, c: 'var(--ch1)' }, { x: q.sim.t, y: q.sim.y, c: 'var(--ch2)' },
-      ...(B ? [{ x: B.q.sim.t, y: B.q.sim.y, c: 'var(--ch2)', ...BASE_STYLE }] : [])], aria: '电流阶跃响应' });
+    series: [{ x: [0, tEnd], y: [d.sim.amp, d.sim.amp], c: 'var(--ref)', dash: '2 3', w: 1.1 }, { x: d.sim.t, y: d.sim.y, c: 'var(--ch1)', n: 'id A' }, { x: q.sim.t, y: q.sim.y, c: 'var(--ch2)', n: 'iq A' },
+      ...(B ? [{ x: B.q.sim.t, y: B.q.sim.y, c: 'var(--ch2)', ...BASE_STYLE, n: '基准 iq A' }] : [])], aria: '电流阶跃响应' });
 }
 
 function renderSpeed() {
@@ -1065,11 +1178,11 @@ function renderSpeed() {
     (lp ? metric('负载跌落', fmt(s.dip, 3) + ' rpm', '', bs ? fmt(bs.dip, 3) + ' rpm' : undefined) + metric('负载恢复 2%', fmtT(s.rec), '', bs ? fmtT(bs.rec) : undefined) : '');
   $('spdNote').innerHTML = (spd.m === 'fw' ? `瑞萨固件公式：Kp = 2ζωn·J/Kt，Ki = ωn²·J/Kt（固件存 Ki·Tω）。` : spd.m === 'so' ? `对称最优理论 PM = ${fmt(soPM, 3)}°（连续域），离散校核值见上。` : `带宽法理论 PM ≈ arctan(N) = ${fmt(deg(Math.atan(spd.N)), 3)}°，离散校核计入内环、ZOH、测速与滤波后的实际值见上。`) +
     ` 仿真：t=0 速度阶跃${lp ? `，t=${fmtT(s.Tload)} 施加 ${fmt(s.Tl, 3)} N·m 负载` : ''}；${P.piImpl === 'rn' ? `PI 按固件 motor_pi_ctrl 实现，限幅 ±${fmt(P.ilimS * P.kT, 3)} A (dq)` : `增量式 PI，电流限幅 ±${fmt(P.Imax, 3)} A`}。`;
-  bode($('spdBode'), [{ sw: spd.sw, c: 'var(--ch1)', cl: true }, ...(B ? [{ sw: B.sw, c: 'var(--ch1)', ...BASE_STYLE }] : [])], { vlines: [{ v: spd.fsc, c: 'var(--accent)', label: 'fsc' }] });
+  bode($('spdBode'), [{ sw: spd.sw, c: 'var(--ch1)', cl: true }, ...(B ? [{ sw: B.sw, c: 'var(--ch1)', ...BASE_STYLE, n: '基准开环' }] : [])], { vlines: [{ v: spd.fsc, c: 'var(--accent)', label: 'fsc' }] });
   const el = $('spdStepP'), tEnd = Math.max(s.t[s.t.length - 1], bs ? bs.t[bs.t.length - 1] : 0);
   el.innerHTML = plotSVG(el, { xmin: 0, xmax: tEnd, xscale: 1000, xlabel: '时间 ms', ylabel: '转速 rpm', h: 340, r2: true,
-    series: [{ x: s.t, y: s.r, c: 'var(--ref)', dash: '2 3', w: 1.1 }, { x: s.t, y: s.y, c: 'var(--ch1)' }, { x: s.t, y: s.y2, c: 'var(--ch2)', y2: true, w: 1.1 },
-      ...(bs ? [{ x: bs.t, y: bs.y, c: 'var(--ch1)', ...BASE_STYLE }] : [])], aria: '速度阶跃响应' });
+    series: [{ x: s.t, y: s.r, c: 'var(--ref)', dash: '2 3', w: 1.1 }, { x: s.t, y: s.y, c: 'var(--ch1)', n: 'n rpm' }, { x: s.t, y: s.y2, c: 'var(--ch2)', y2: true, w: 1.1, n: 'iq A' },
+      ...(bs ? [{ x: bs.t, y: bs.y, c: 'var(--ch1)', ...BASE_STYLE, n: '基准 n rpm' }] : [])], aria: '速度阶跃响应' });
 }
 
 function renderPos() {
@@ -1089,10 +1202,10 @@ function renderPos() {
     metric('闭环 −3dB', fmtHz(pos.sw.bw), '', bm(b => fmtHz(b.sw.bw))) +
     metric('阶跃超调', fmt(s.met.os, 3) + '%', s.met.os < 2 ? 'ok' : s.met.os < 10 ? 'warn' : 'bad', bs ? fmt(bs.met.os, 3) + '%' : undefined) +
     metric('调节时间 2%', fmtT(s.met.ts), '', bs ? fmtT(bs.met.ts) : undefined);
-  bode($('posBode'), [{ sw: pos.sw, c: 'var(--ch1)', cl: true }, ...(B ? [{ sw: B.sw, c: 'var(--ch1)', ...BASE_STYLE }] : [])], { vlines: [{ v: pos.fpc, c: 'var(--accent)', label: 'fpc' }] });
+  bode($('posBode'), [{ sw: pos.sw, c: 'var(--ch1)', cl: true }, ...(B ? [{ sw: B.sw, c: 'var(--ch1)', ...BASE_STYLE, n: '基准开环' }] : [])], { vlines: [{ v: pos.fpc, c: 'var(--accent)', label: 'fpc' }] });
   const el = $('posStepP'), tEnd = Math.max(s.t[s.t.length - 1], bs ? bs.t[bs.t.length - 1] : 0);
   el.innerHTML = plotSVG(el, { xmin: 0, xmax: tEnd, xscale: 1000, xlabel: '时间 ms', ylabel: '位置 °', h: 340,
-    series: [{ x: s.t, y: s.r, c: 'var(--ref)', dash: '2 3', w: 1.1 }, { x: s.t, y: s.y, c: 'var(--ch1)' }, ...(bs ? [{ x: bs.t, y: bs.y, c: 'var(--ch1)', ...BASE_STYLE }] : [])], aria: '位置阶跃响应' });
+    series: [{ x: s.t, y: s.r, c: 'var(--ref)', dash: '2 3', w: 1.1 }, { x: s.t, y: s.y, c: 'var(--ch1)', n: 'θ °' }, ...(bs ? [{ x: bs.t, y: bs.y, c: 'var(--ch1)', ...BASE_STYLE, n: '基准 θ °' }] : [])], aria: '位置阶跃响应' });
 }
 
 function renderObs() {
@@ -1120,6 +1233,125 @@ function renderObs() {
     metric('EMF 观测器 Kpo', fmt(emf.Kp, 4), emf.Kp > 0 ? 'ok' : 'bad', bm(b => fmt(b.emf.Kp, 4))) +
     metric('fo / fe,N', fmt(emf.wo / emf.weN, 3), emf.wo / emf.weN >= 3 ? 'ok' : 'warn', bm(b => fmt(b.emf.wo / b.emf.weN, 3)));
   zplane($('obsZ'), [{ p: pll.poles, c: 'var(--ch1)', name: 'PLL' }, { p: emf.poles, c: 'var(--ch2)', name: '反电势观测器' }, { p: lo.poles, c: 'var(--ch3)', name: '负载观测器' }]);
+}
+
+/* ============ ANALYSIS: TRADE-OFF, ROBUSTNESS, AUTO-TUNE ============ */
+/* These run only for the visible loop tab, a moment after typing stops, and are cached per input set. */
+const ANA_KEY = { cur: null, spd: null };
+let anaTimer = 0;
+const activeTab = () => { const b = document.querySelector('.tabs [aria-selected="true"]'); return b ? b.dataset.tab : 'cur'; };
+function scheduleAnalysis() { clearTimeout(anaTimer); anaTimer = setTimeout(runAnalysis, 150); }
+function runAnalysis() {
+  const tab = activeTab(); if ((tab !== 'cur' && tab !== 'spd') || !R || R.bad) return;
+  const inp = readInputs(), key = JSON.stringify(inp);
+  if (ANA_KEY[tab] === key) return;
+  ANA_KEY[tab] = key;
+  renderTradeoff(tab, tradeoff(inp, tab), inp);
+  renderRobust(tab, robustness(inp, tab));
+}
+function renderTradeoff(tab, tr, inp) {
+  const el = $(tab + 'Trade'); if (!tr) { el.innerHTML = ''; return; }
+  const target = parseFloat(tab === 'cur' ? inp.tgtPmC : inp.tgtPmS), now = parseFloat(inp[tr.key]);
+  const unit = tr.key === 'aSO' ? '' : ' Hz';
+  const xl = tr.key === 'fcc' ? (R.cur.m === 'fw' ? 'fn 电流 Hz' : 'fcc Hz') : tr.key === 'aSO' ? '对称最优 a' : (R.spd.m === 'fw' ? 'fn 速度 Hz' : 'fsc Hz');
+  el.innerHTML = plotSVG(el, { xlog: true, xmin: tr.lo, xmax: tr.hi, xlabel: xl, ylabel: '相位裕度 °', h: 260, r2: true,
+    series: [{ x: tr.xs, y: tr.pm, c: 'var(--ch1)', n: 'PM °' }, { x: tr.xs, y: tr.gm.map(g => isFinite(g) ? g : NaN), c: 'var(--ch2)', y2: true, w: 1.2, n: 'GM dB' }],
+    hlines: [{ v: target, c: 'var(--ok)', dash: '5 4' }], vlines: [{ v: now, c: 'var(--accent)', label: '当前' + unit.trim() }], yclip: [-30, 100], aria: '带宽与裕度权衡' });
+}
+function renderRobust(tab, rb) {
+  if (!rb) { $(tab + 'RbTbl').innerHTML = ''; $(tab + 'RbMet').innerHTML = ''; return; }
+  const tgt = parseFloat(tab === 'cur' ? R.I.tgtPmC : R.I.tgtPmS), gmT = parseFloat(R.I.tgtGm);
+  const w = rb.worst;
+  $(tab + 'RbMet').innerHTML =
+    metric('最差相位裕度', fmt(w.pm, 3) + '°', w.pm >= tgt ? 'ok' : w.pm >= tgt - 10 ? 'warn' : 'bad') +
+    metric('最差增益裕度', isFinite(w.gm) ? fmt(w.gm, 3) + ' dB' : '∞', !isFinite(w.gm) || w.gm >= gmT ? 'ok' : w.gm >= gmT / 2 ? 'warn' : 'bad') +
+    metric('闭环带宽范围', `${fmtHz(w.bwLo)} ~ ${fmtHz(w.bwHi)}`) +
+    metric('参数组合', String(rb.rows.length));
+  const cols = tab === 'cur' ? [['L', 'L ×'], ['R', 'R ×']] : [['L', 'L ×'], ['J', 'J ×'], ['Kt', 'Kt ×']];
+  const rows = rb.rows.slice().sort((a, b) => a.pm - b.pm);
+  $(tab + 'RbTbl').innerHTML = `<tr>${cols.map(c => `<th>${c[1]}</th>`).join('')}<th style="text-align:right">PM °</th><th style="text-align:right">GM dB</th><th style="text-align:right">带宽 Hz</th></tr>` +
+    rows.map((r, i) => `<tr class="${i === 0 ? 'worst' : ''}${r === rb.nominal ? ' nominal' : ''}">${cols.map(c => `<td class="s">${fmt(r[c[0]], 3)}</td>`).join('')}<td class="v">${fmt(r.pm, 4)}</td><td class="v">${isFinite(r.gm) ? fmt(r.gm, 4) : '∞'}</td><td class="v">${fmt(r.bw, 4)}</td></tr>`).join('');
+}
+function doTune(loop) {
+  const inp = readInputs(), pm = parseFloat(loop === 'cur' ? inp.tgtPmC : inp.tgtPmS), gm = parseFloat(inp.tgtGm);
+  const hint = $(loop === 'cur' ? 'tuneCHint' : 'tuneSHint');
+  hint.textContent = inp.tuneMode === 'worst' ? '正在计算所有参数组合…' : '正在计算…';
+  setTimeout(() => {
+    const r = autoTune(inp, loop, pm, gm, inp.tuneMode);
+    const what = inp.tuneMode === 'worst' ? '所有参数组合下' : '标称参数下';
+    if (!r || r.value === null) { hint.textContent = `${what}达不到 PM ≥ ${pm}°、GM ≥ ${gm} dB，请降低目标、缩小变化范围或检查参数。`; return; }
+    // round toward the safe side: a larger a, or a slightly lower bandwidth
+    const v = r.key === 'aSO' ? +(r.value * 1.002).toPrecision(3) : +(r.value * 0.998).toPrecision(3);
+    $(r.key).value = v; syncSliders();
+    hint.textContent = `已设 ${r.key === 'aSO' ? 'a' : r.key} = ${v}${r.key === 'aSO' ? '' : ' Hz'}（${what}满足目标的最大带宽）。标称 PM ${fmt(r.pm, 3)}°、闭环带宽 ${fmtHz(r.bw)}` +
+      (r.mode === 'worst' ? `；最差 PM ${fmt(r.worstPm, 3)}°、最差 GM ${isFinite(r.worstGm) ? fmt(r.worstGm, 3) + ' dB' : '∞'}。` : `，GM ${fmt(r.gm, 3)} dB。`);
+    schedule();
+  }, 20);
+}
+
+/* ============ INPUT VALIDATION ============ */
+const OPTIONAL = new Set(['Vb', 'Ib', 'nb', 'ilimC', 'ilimS']);
+const BAD_FIELD = { Rs: 'Rs', Ld: 'Ld', Lq: 'Lq', 'ψf': 'fluxVal', J: 'Jm', Irated: 'Irated', Imax: 'Imax', Udc: 'Vdc', fpwm: 'fsw', nmax: 'nMax' };
+function markInvalid(bad) {
+  const badIds = new Set((bad || []).map(n => BAD_FIELD[n]).filter(Boolean));
+  FIELDS.forEach(id => {
+    const el = $(id); if (!el || el.type !== 'number') return;
+    const v = el.value.trim(), wrong = badIds.has(id) || (v === '' ? !OPTIONAL.has(id) : !isFinite(parseFloat(v)));
+    const box = el.closest('.inp'); if (box) { box.classList.toggle('inval', wrong); box.title = wrong ? '请输入有效数值' : ''; }
+  });
+}
+
+/* ============ PHONE VIEW ============ */
+function setView(v) {
+  document.body.dataset.view = v;
+  document.querySelectorAll('#viewSeg [data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === v)));
+  try { localStorage.setItem(STORE + '-view', v); } catch (e) { }
+  if (v === 'results') setTimeout(() => { compute(); }, 0);
+}
+
+/* ============ SAVED SCHEMES ============ */
+const SCH_KEY = STORE + '-schemes';
+function schemes() { try { return JSON.parse(localStorage.getItem(SCH_KEY) || '[]'); } catch (e) { return []; } }
+function setSchemes(list) { try { localStorage.setItem(SCH_KEY, JSON.stringify(list)); } catch (e) { toast('浏览器不允许保存（隐私模式？）'); } renderSchemes(); }
+const escapeHTML = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function renderSchemes() {
+  const list = schemes();
+  $('schTbl').innerHTML = list.length ? `<tr><th>方案</th><th>保存时间</th><th></th></tr>` + list.map((s, i) =>
+    `<tr><td>${escapeHTML(s.name)}</td><td class="u">${escapeHTML(s.time || '')}</td><td style="text-align:right;white-space:nowrap"><button class="btn small" data-sch="load" data-i="${i}" type="button">载入</button> <button class="btn small" data-sch="base" data-i="${i}" type="button">设为基准</button> <button class="btn small" data-sch="del" data-i="${i}" type="button">删除</button></td></tr>`).join('')
+    : `<tr><td class="hint">还没有保存的方案。填好参数后输入名称并点“保存当前参数”。</td></tr>`;
+}
+function schemeAction(e) {
+  const b = e.target.closest('[data-sch]'); if (!b) return;
+  const list = schemes(), s = list[+b.dataset.i]; if (!s) return;
+  if (b.dataset.sch === 'load') { applyInputs({ ...DEFAULTS, ...s.inputs }); schedule(); toast('已载入：' + s.name); }
+  if (b.dataset.sch === 'base') { setBaseline({ ...DEFAULTS, ...s.inputs }, '方案：' + s.name); compute(); toast('已设为对比基准'); }
+  if (b.dataset.sch === 'del') {
+    if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = '确认删除'; setTimeout(() => { if (b.isConnected) { b.dataset.confirm = ''; b.textContent = '删除'; } }, 3000); return; }
+    list.splice(+b.dataset.i, 1); setSchemes(list); toast('已删除');
+  }
+}
+function saveScheme() {
+  const name = $('schName').value.trim() || ('方案 ' + new Date().toLocaleString());
+  const list = schemes().filter(s => s.name !== name);
+  list.unshift({ name, time: new Date().toLocaleString(), inputs: readInputs() });
+  setSchemes(list); $('schName').value = ''; toast('已保存：' + name);
+}
+const schemeJSON = () => JSON.stringify({ app: 'pmsm-tuner', version: 1, schemes: schemes() }, null, 1);
+function downloadSchemes() {
+  try {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([schemeJSON()], { type: 'application/json' }));
+    a.download = 'pmsm-schemes.json'; document.body.appendChild(a); a.click(); a.remove();
+    toast('已开始下载；如果没有反应，请用“复制全部方案 JSON”');
+  } catch (e) { copyText(schemeJSON()); }
+}
+async function importSchemes(file) {
+  try {
+    const o = JSON.parse(await file.text()), add = Array.isArray(o) ? o : o.schemes;
+    if (!Array.isArray(add)) throw new Error('文件里没有方案列表');
+    const list = schemes(), names = new Set(list.map(s => s.name));
+    let n = 0; add.forEach(s => { if (s && s.inputs && s.name) { if (names.has(s.name)) s.name += '（导入）'; list.push(s); n++; } });
+    setSchemes(list); toast(`已导入 ${n} 个方案`);
+  } catch (e) { toast('导入失败：' + e.message); }
 }
 
 /* ============ EXPORT ============ */
@@ -1229,6 +1461,20 @@ function init() {
     if (e.target.id === 'btnSetBase') { setBaseline(readInputs(), '手动设定 · ' + new Date().toLocaleString()); compute(); toast('已设为对比基准'); }
     if (e.target.id === 'btnClearBase') { clearBaseline(); compute(); toast('已清除对比基准'); }
   });
+  $('btnTuneC').addEventListener('click', () => doTune('cur'));
+  $('btnTuneS').addEventListener('click', () => doTune('spd'));
+  document.addEventListener('pointermove', plotHover);
+  document.addEventListener('pointerout', e => { const box = e.target.closest && e.target.closest('.plotbox'); if (box && !box.contains(e.relatedTarget)) plotLeave(e); });
+  document.querySelectorAll('#viewSeg [data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+  let v0 = 'results'; try { v0 = localStorage.getItem(STORE + '-view') || 'results'; } catch (e) { }
+  document.body.dataset.view = v0; document.querySelectorAll('#viewSeg [data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === v0)));
+  $('btnSchSave').addEventListener('click', saveScheme);
+  $('schName').addEventListener('keydown', e => { if (e.key === 'Enter') saveScheme(); });
+  $('schTbl').addEventListener('click', schemeAction);
+  if ($('btnSchDl')) $('btnSchDl').addEventListener('click', downloadSchemes);
+  $('btnSchCopy').addEventListener('click', () => copyText(schemeJSON()));
+  $('schFile').addEventListener('change', e => { if (e.target.files[0]) importSchemes(e.target.files[0]); e.target.value = ''; });
+  renderSchemes();
   $('btnImport').addEventListener('click', () => { importCfg().catch(err => { $('impResult').innerHTML = `<div class="note bad">导入失败：${err.message}</div>`; }); });
   setType($('motorType').value); updFlux(); syncSliders(); updPlaceholders();
   document.querySelectorAll('[data-type]').forEach(b => b.addEventListener('click', () => { setType(b.dataset.type); schedule(); }));
@@ -1264,7 +1510,7 @@ function init() {
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('help').hidden) closeHelp(); });
   $('help').querySelectorAll('nav a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); const t = document.querySelector(a.getAttribute('href')); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
   try { const t = localStorage.getItem(STORE + '-tab'); if (t) { const b = document.querySelector(`.tabs [data-tab="${t}"]`); if (b) b.click(); } } catch (e) { }
-  let rw = 0; window.addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(compute, 150); });
+  let rw = 0; window.addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(() => { ANA_KEY.cur = ANA_KEY.spd = null; compute(); }, 150); });
   compute();
 }
 init();

@@ -82,7 +82,7 @@ function readP() {
   P.Td = (P.Nd + 0.5) * P.Ts;
   P.Nw = Math.max(1, Math.round(v('Nw'))); P.Tw = P.Nw * P.Ts;
   P.Np = Math.max(1, Math.round(v('Np'))); P.Tp = P.Np * P.Ts;
-  P.ff = v('ff') || 0; P.enc = v('enc') || 0;
+  P.ff = v('ff') || 0; P.enc = v('enc') || 0; P.spdSrc = IN.spdSrc === 'enc' ? 'enc' : 'pll';
   P.Vmax = P.Vdc / Math.sqrt(3);
   P.Vb = v('Vb') || P.Vmax; P.Ib = v('Ib') || P.Imax; P.nb = v('nb') || P.nMax;
   P.wmb = P.nb * TAU / 60;
@@ -159,36 +159,43 @@ function stepMetrics(t, y, ref, t0 = 0, t1 = Infinity) {
 }
 
 /* ============ CURRENT LOOP ============ */
-function designCurrent(P) {
-  const fcc = parseFloat(IN.fcc), wc = TAU * fcc, m = IN.curMethod;
-  const ax = L => {
-    const a = Math.exp(-P.Rs * P.Ts / L), b = (1 - a) / P.Rs;
-    let Kp, Ki, b0, b1;
-    if (m === 'fw') {
-      const zc = parseFloat(IN.zcc) || 1;
-      Kp = 2 * zc * wc * L - P.Rs; Ki = wc * wc * L; ({ b0, b1 } = piCoef(Kp, Ki, P.Ts, P.disc));
-    } else if (m === 'zd') {
-      const K = 1 - Math.exp(-wc * P.Ts);
-      b0 = K / b; b1 = -a * b0;
-      // equivalent continuous gains for the chosen discretization
-      if (P.disc === 'fe') { Kp = b0; Ki = (b0 + b1) / P.Ts; }
-      else if (P.disc === 'tu') { Ki = (b0 + b1) / P.Ts; Kp = b0 - Ki * P.Ts / 2; }
-      else { Kp = -b1; Ki = (b0 + b1) / P.Ts; }
-    } else { Kp = wc * L; Ki = wc * P.Rs; ({ b0, b1 } = piCoef(Kp, Ki, P.Ts, P.disc)); }
-    const pl = plantZ(P, L);
-    // closed-loop characteristic polynomial: den + num, with L(z) = C(z)·G(z)
-    const num = polyMul([b0, b1], pl.num), den = polyMul([1, -1], pl.den);
-    const poles = roots(polyAdd(den, num));
-    const Lw = w => { const zi = cexpj(-w * P.Ts);
-      const Cz = cdiv(cadd(C(b0), cscale(zi, b1)), csub(ONE, zi));
-      return cmul(Cz, pl.G(w)); };
-    const sw = sweep(Math.max(1, fcc / 100), P.fs / 2 * 0.999, 500, Lw);
-    return { L, a, b, g0: pl.g0, g1: pl.g1, Kp, Ki, b0, b1, Ti: Kp / Ki, KiTI: Ki * P.Ts / Kp, poles, Lw, sw, rmax: Math.max(...poles.map(cabs)) };
-  };
+/* Controller design for one axis. L is the inductance the design assumes. */
+function currentCtrl(P, L, m, fcc, zc) {
+  const wc = TAU * fcc, a = Math.exp(-P.Rs * P.Ts / L), b = (1 - a) / P.Rs;
+  let Kp, Ki, b0, b1;
+  if (m === 'fw') {
+    Kp = 2 * zc * wc * L - P.Rs; Ki = wc * wc * L; ({ b0, b1 } = piCoef(Kp, Ki, P.Ts, P.disc));
+  } else if (m === 'zd') {
+    const K = 1 - Math.exp(-wc * P.Ts);
+    b0 = K / b; b1 = -a * b0;
+    // equivalent continuous gains for the chosen discretization
+    if (P.disc === 'fe') { Kp = b0; Ki = (b0 + b1) / P.Ts; }
+    else if (P.disc === 'tu') { Ki = (b0 + b1) / P.Ts; Kp = b0 - Ki * P.Ts / 2; }
+    else { Kp = -b1; Ki = (b0 + b1) / P.Ts; }
+  } else { Kp = wc * L; Ki = wc * P.Rs; ({ b0, b1 } = piCoef(Kp, Ki, P.Ts, P.disc)); }
+  return { Kp, Ki, b0, b1, Ti: Kp / Ki, KiTI: Ki * P.Ts / Kp };
+}
+/* Discrete loop of a fixed controller against a plant 1/(Lp·s + Rp) with the configured delay. */
+function currentLoop(P, ctrl, Lp, Rp, fref, npts = 500) {
+  const Pp = Rp === P.Rs ? P : { ...P, Rs: Rp };
+  const pl = plantZ(Pp, Lp);
+  // closed-loop characteristic polynomial: den + num, with L(z) = C(z)·G(z)
+  const num = polyMul([ctrl.b0, ctrl.b1], pl.num), den = polyMul([1, -1], pl.den);
+  const poles = roots(polyAdd(den, num));
+  const Lw = w => { const zi = cexpj(-w * P.Ts);
+    return cmul(cdiv(cadd(C(ctrl.b0), cscale(zi, ctrl.b1)), csub(ONE, zi)), pl.G(w)); };
+  const sw = sweep(Math.max(1, fref / 100), P.fs / 2 * 0.999, npts, Lw);
+  return { a: pl.a, b: (1 - pl.a) / Rp, g0: pl.g0, g1: pl.g1, poles, Lw, sw, rmax: Math.max(...poles.map(cabs)) };
+}
+function designCurrent(P, o = {}) {
+  const fcc = o.fcc !== undefined ? o.fcc : parseFloat(IN.fcc), wc = TAU * fcc, m = IN.curMethod, zc = parseFloat(IN.zcc) || 1;
+  const ax = L => { const c = currentCtrl(P, L, m, fcc, zc); return { L, ...c, ...currentLoop(P, c, L, P.Rs, fcc, o.npts) }; };
   const d = ax(P.Ld), q = ax(P.Lq);
-  const amp = parseFloat(IN.curStep) || 1;
-  d.sim = simCurrent(P, d, amp); q.sim = simCurrent(P, q, amp);
-  d.met = stepMetrics(d.sim.t, d.sim.y, amp); q.met = stepMetrics(q.sim.t, q.sim.y, amp);
+  if (o.sim !== false) {
+    const amp = parseFloat(IN.curStep) || 1;
+    d.sim = simCurrent(P, d, amp); q.sim = simCurrent(P, q, amp);
+    d.met = stepMetrics(d.sim.t, d.sim.y, amp); q.met = stepMetrics(q.sim.t, q.sim.y, amp);
+  }
   return { fcc, wc, m, d, q, fcc45: 1 / (8 * P.Td), fcc60: 1 / (12 * P.Td) };
 }
 
@@ -235,39 +242,56 @@ function plantZ(P, L) {
 }
 
 /* ============ SPEED LOOP ============ */
-function designSpeed(P, cur) {
-  const m = IN.spdMethod;
-  const wcc = cur.wc;
-  const wf = P.ff > 0 ? TAU * P.ff : Infinity;
+/* PLL speed estimator running every Ts (forward-Euler form, as used for sensorless angle/speed):
+ *   ε = θ − θ̂,  ω̂ = Kp·ε + I,  I += Ki·Ts·ε,  θ̂ += Ts·ω̂
+ * Its response from true to estimated speed is ω̂/ω = C(z) / (jω·(1 + C(z)·Ts·z⁻¹/(1 − z⁻¹))), C(z) = Kp + Ki·Ts·z⁻¹/(1 − z⁻¹). */
+function pllGains() { const wn = TAU * (parseFloat(IN.fpll) || 25), z = parseFloat(IN.zpll) || 1; return { Kp: 2 * z * wn, Ki: wn * wn, wn, z }; }
+function pllResp(P, g, w) {
+  const zi = cexpj(-w * P.Ts), integ = cdiv(zi, csub(ONE, zi));
+  const Cp = cadd(C(g.Kp), cscale(integ, g.Ki * P.Ts)), A = cscale(integ, P.Ts);
+  return cdiv(Cp, cmul(C(0, w), cadd(ONE, cmul(Cp, A))));
+}
+function speedCtrl(P, cur, o = {}) {
+  const m = IN.spdMethod, wf = P.ff > 0 ? TAU * P.ff : Infinity;
   let Kp, Ki, wsc, N, a;
-  const Tsig = 1 / wcc + (isFinite(wf) ? 1 / wf : 0) + P.Tw;
+  const Tsig = 1 / cur.wc + (isFinite(wf) ? 1 / wf : 0) + P.Tw + (P.spdSrc === 'pll' ? 2 * pllGains().z / pllGains().wn : 0);
+  const fsc = o.fsc !== undefined ? o.fsc : parseFloat(IN.fsc);
   if (m === 'fw') {
     const zs = parseFloat(IN.zsc) || 1;
-    wsc = TAU * parseFloat(IN.fsc);
-    Kp = 2 * zs * wsc * P.J / P.Kt; Ki = wsc * wsc * P.J / P.Kt; N = 2 * zs;
+    wsc = TAU * fsc; Kp = 2 * zs * wsc * P.J / P.Kt; Ki = wsc * wsc * P.J / P.Kt; N = 2 * zs;
   } else if (m === 'so') {
-    a = parseFloat(IN.aSO) || 2.4;
+    a = o.aSO !== undefined ? o.aSO : (parseFloat(IN.aSO) || 2.4);
     Kp = P.J / (a * P.Kt * Tsig); const Ti = a * a * Tsig; Ki = Kp / Ti; wsc = 1 / (a * Tsig); N = a;
   } else {
-    wsc = TAU * parseFloat(IN.fsc); N = parseFloat(IN.Nz) || 4;
+    wsc = TAU * fsc; N = parseFloat(IN.Nz) || 4;
     Kp = P.J * wsc / P.Kt; Ki = Kp * wsc / N;
   }
   const { b0, b1 } = piCoef(Kp, Ki, P.Tw, P.disc);
-  const alpha = isFinite(wf) ? 1 - Math.exp(-wf * P.Tw) : 1;
+  return { m, Kp, Ki, b0, b1, wsc, fsc: wsc / TAU, N, a, Tsig, wf };
+}
+/* Multi-rate frequency response of the speed loop for a fixed controller.
+ * plant: { J, Kt, B } may differ from the design values; curQ is the (possibly perturbed) q-axis current loop. */
+function speedLoop(P, ctrl, curQ, plant, npts = 500) {
+  const wf = ctrl.wf, alpha = isFinite(wf) ? 1 - Math.exp(-wf * P.Tw) : 1;
   // firmware motor_filter_first_order_lpff: y = ka·y[-1] + kb·(x + x[-1]) (Tustin); otherwise y += α(x − y)
   const wT = isFinite(wf) ? wf * P.Tw : Infinity, lpf = P.piImpl === 'rn' && isFinite(wf) ? { type: 'tu', ka: (2 - wT) / (2 + wT), kb: wT / (2 + wT) } : { type: 'iir', alpha };
-  const q = cur.q;
-  const Tc = w => { const L = q.Lw(w); return cdiv(L, cadd(ONE, L)); };
+  const pg = pllGains();
+  const Tc = w => { const L = curQ.Lw(w); return cdiv(L, cadd(ONE, L)); };
   const Fz = w => { const zi = cexpj(-w * P.Tw); return lpf.type === 'tu' ? cdiv(cscale(cadd(ONE, zi), lpf.kb), csub(ONE, cscale(zi, lpf.ka))) : cdiv(C(alpha), csub(ONE, cscale(zi, 1 - alpha))); };
-  const Mech = w => cdiv(C(P.Kt), C(P.B, P.J * w));
-  const fwd = w => cmul(cmul(cmul(piZ(w, P.Tw, b0, b1), zohF(w, P.Tw)), Tc(w)), Mech(w));
-  const fb = w => cmul(zohF(w, P.Tw), Fz(w)); // Δθ/Tw averaging + IIR filter
+  const Mech = w => cdiv(C(plant.Kt), C(plant.B, plant.J * w));
+  const fwd = w => cmul(cmul(cmul(piZ(w, P.Tw, ctrl.b0, ctrl.b1), zohF(w, P.Tw)), Tc(w)), Mech(w));
+  // speed measurement: PLL estimate (sensorless) or position difference Δθ/Tω (encoder), then the low-pass filter
+  const meas = w => P.spdSrc === 'pll' ? pllResp(P, pg, w) : zohF(w, P.Tw);
+  const fb = w => cmul(meas(w), Fz(w));
   const Lw = w => cmul(fwd(w), fb(w));
-  const Tw = w => { const L = Lw(w); return cdiv(fwd(w), cadd(ONE, L)); };
-  const fsc = wsc / TAU;
-  const sw = sweep(Math.max(0.1, fsc / 100), Math.min(P.fs / 2, 1 / (2 * P.Tw)) * 0.999, 500, Lw, (w) => Tw(w));
-  const R = { m, Kp, Ki, b0, b1, wsc, fsc, N, a, Tsig, alpha, lpf, wf, Lw, Tw, sw };
-  R.sim = simCascade(P, cur, R, null, 'speed');
+  const Tw = w => cdiv(fwd(w), cadd(ONE, Lw(w)));
+  const sw = sweep(Math.max(0.1, ctrl.fsc / 100), Math.min(P.fs / 2, 1 / (2 * P.Tw)) * 0.999, npts, Lw, w => Tw(w));
+  return { alpha, lpf, pll: pg, Lw, Tw, sw };
+}
+function designSpeed(P, cur, o = {}) {
+  const c = speedCtrl(P, cur, o);
+  const R = { ...c, ...speedLoop(P, c, cur.q, P, o.npts) };
+  if (o.sim !== false) R.sim = simCascade(P, cur, R, null, 'speed');
   return R;
 }
 
@@ -281,6 +305,108 @@ function designPos(P, cur, spd) {
   const R = { fpc, Kpp, vff, Kaff, Lw, sw };
   R.sim = simCascade(P, cur, spd, R, 'pos');
   return R;
+}
+
+/* ============ AUTO-TUNE, TRADE-OFF, ROBUSTNESS ============ */
+/* All three use the frequency-domain analysis only (no time simulation), so they stay fast. */
+const loopMetrics = (loop, R) => loop === 'cur'
+  ? { pm: Math.min(R.d.sw.pm, R.q.sw.pm), gm: Math.min(R.d.sw.gm, R.q.sw.gm), bw: R.q.sw.bw, fc: R.q.sw.fc, rmax: Math.max(R.d.rmax, R.q.rmax) }
+  : { pm: R.sw.pm, gm: R.sw.gm, bw: R.sw.bw, fc: R.sw.fc, rmax: 0 };
+function tuneSpace(loop, P, cur) {
+  if (loop === 'cur') return { key: 'fcc', lo: Math.max(1, P.fs / 5000), hi: P.fs / 3, larger: true };
+  if (IN.spdMethod === 'so') return { key: 'aSO', lo: 1.2, hi: 8, larger: false };
+  return { key: 'fsc', lo: Math.max(0.05, cur.fcc / 2000), hi: Math.min(cur.fcc, 1 / (2 * P.Tw)), larger: true };
+}
+function evalTune(loop, P, cur, key, x) {
+  const R = loop === 'cur' ? designCurrent(P, { fcc: x, sim: false, npts: 300 }) : designSpeed(P, cur, { [key]: x, sim: false, npts: 300 });
+  return loopMetrics(loop, R);
+}
+/* plant variation ranges from the inputs; each list contains 1 (nominal) */
+function rbRanges() {
+  const g = id => parseFloat(IN[id]), uniq = a => a.filter((x, i) => a.indexOf(x) === i);
+  const lv = (g('rbL') || 0) / 100, kv = (g('rbKt') || 0) / 100;
+  return { Ls: lv > 0 ? [1 - lv, 1, 1 + lv] : [1], Rs: uniq([g('rbRlo') || 1, 1, g('rbRhi') || 1]),
+    Js: uniq([g('rbJlo') || 1, 1, g('rbJhi') || 1]), Ks: kv > 0 ? [1 - kv, 1, 1 + kv] : [1] };
+}
+/* worst margins over all plant corners for the controller that the tuning parameter x produces */
+function worstAt(loop, P, cur, key, x, rr) {
+  let pm = Infinity, gm = Infinity, rmax = 0, bw = NaN;
+  if (loop === 'cur') {
+    const c = designCurrent(P, { fcc: x, sim: false, npts: 200 });
+    for (const ls of rr.Ls) for (const rs of rr.Rs) for (const ax of ['d', 'q']) {
+      const l = currentLoop(P, c[ax], (ax === 'd' ? P.Ld : P.Lq) * ls, P.Rs * rs, x, 200);
+      pm = Math.min(pm, l.sw.pm); if (isFinite(l.sw.gm)) gm = Math.min(gm, l.sw.gm); rmax = Math.max(rmax, l.rmax);
+    }
+    bw = c.q.sw.bw;
+  } else {
+    const sc = speedCtrl(P, cur, { [key]: x });
+    for (const ls of rr.Ls) {
+      const q = currentLoop(P, cur.q, P.Lq * ls, P.Rs, cur.fcc, 150);
+      for (const js of rr.Js) for (const ks of rr.Ks) {
+        const l = speedLoop(P, sc, q, { J: P.J * js, Kt: P.Kt * ks, B: P.B }, 200);
+        pm = Math.min(pm, l.sw.pm); if (isFinite(l.sw.gm)) gm = Math.min(gm, l.sw.gm);
+        if (ls === 1 && js === 1 && ks === 1) bw = l.sw.bw;
+      }
+    }
+  }
+  return { pm, gm, rmax, bw };
+}
+/* Bandwidth–margin trade-off: margins over the tuning parameter, log-spaced. */
+function tradeoff(inputs, loop, n = 40) {
+  IN = { ...DEFAULTS, ...inputs };
+  const P = readP(); if (validP(P).length) return null;
+  const cur = designCurrent(P, { sim: false, npts: 300 });
+  const sp = tuneSpace(loop, P, cur), xs = [], pts = [];
+  for (let i = 0; i < n; i++) {
+    const x = sp.lo * Math.pow(sp.hi / sp.lo, i / (n - 1));
+    xs.push(x); pts.push(evalTune(loop, P, cur, sp.key, x));
+  }
+  return { ...sp, xs, pm: pts.map(p => p.pm), gm: pts.map(p => p.gm), bw: pts.map(p => p.bw) };
+}
+/* Largest bandwidth (or smallest a for symmetric optimum) that still meets the phase/gain margin targets.
+ * mode 'worst' requires the targets at every plant corner of the robustness ranges, not only at nominal values. */
+function autoTune(inputs, loop, pmTarget, gmTarget, mode) {
+  IN = { ...DEFAULTS, ...inputs };
+  const P = readP(); if (validP(P).length) return null;
+  const cur = designCurrent(P, { sim: false, npts: 300 });
+  const sp = tuneSpace(loop, P, cur), worst = mode === 'worst', rr = rbRanges();
+  const metr = x => worst ? worstAt(loop, P, cur, sp.key, x, rr) : evalTune(loop, P, cur, sp.key, x);
+  const ok = x => { const m = metr(x); return m.pm >= pmTarget && (!isFinite(m.gm) || m.gm >= gmTarget) && m.rmax < 1 && isFinite(m.pm); };
+  const n = worst ? 32 : 48, xs = []; for (let i = 0; i < n; i++) xs.push(sp.lo * Math.pow(sp.hi / sp.lo, i / (n - 1)));
+  // scan from the conservative end; the first infeasible point after a feasible run brackets the limit
+  const order = sp.larger ? xs : xs.slice().reverse();
+  let good = null, bad = null;
+  for (const x of order) { if (ok(x)) good = x; else if (good !== null) { bad = x; break; } }
+  if (good === null) return { key: sp.key, value: null };
+  if (bad !== null) for (let i = 0; i < (worst ? 18 : 30); i++) { const mid = Math.sqrt(good * bad); if (ok(mid)) good = mid; else bad = mid; }
+  const m = evalTune(loop, P, cur, sp.key, good), w = worst ? worstAt(loop, P, cur, sp.key, good, rr) : null;
+  return { key: sp.key, value: good, mode: worst ? 'worst' : 'nom', ...m, worstPm: w ? w.pm : undefined, worstGm: w ? w.gm : undefined };
+}
+/* Fixed controller (designed with the nominal parameters) against a plant whose parameters vary over the given ranges. */
+function robustness(inputs, loop) {
+  IN = { ...DEFAULTS, ...inputs };
+  const P = readP(); if (validP(P).length) return null;
+  const { Ls, Rs, Js, Ks } = rbRanges();
+  const cur = designCurrent(P, { sim: false });
+  const rows = [];
+  if (loop === 'cur') {
+    for (const ls of Ls) for (const rs of Rs) {
+      const d = currentLoop(P, cur.d, P.Ld * ls, P.Rs * rs, cur.fcc, 300), q = currentLoop(P, cur.q, P.Lq * ls, P.Rs * rs, cur.fcc, 300);
+      rows.push({ L: ls, R: rs, pm: Math.min(d.sw.pm, q.sw.pm), gm: Math.min(d.sw.gm, q.sw.gm), bw: q.sw.bw, rmax: Math.max(d.rmax, q.rmax) });
+    }
+  } else {
+    const spd = speedCtrl(P, cur);
+    for (const ls of Ls) {
+      const q = currentLoop(P, cur.q, P.Lq * ls, P.Rs, cur.fcc, 200);
+      for (const js of Js) for (const ks of Ks) {
+        const l = speedLoop(P, spd, q, { J: P.J * js, Kt: P.Kt * ks, B: P.B }, 300);
+        rows.push({ L: ls, J: js, Kt: ks, pm: l.sw.pm, gm: l.sw.gm, bw: l.sw.bw, fc: l.sw.fc });
+      }
+    }
+  }
+  const fin = a => a.filter(isFinite);
+  const worst = { pm: Math.min(...rows.map(r => r.pm)), gm: Math.min(...fin(rows.map(r => r.gm)).concat([Infinity])), bwLo: Math.min(...rows.map(r => r.bw)), bwHi: Math.max(...rows.map(r => r.bw)) };
+  return { rows, worst, nominal: rows.find(r => r.L === 1 && (r.R === 1 || r.R === undefined) && (r.J === 1 || r.J === undefined) && (r.Kt === 1 || r.Kt === undefined)) };
 }
 
 /* multi-rate cascade simulation: current (Ts) / speed (Tw) / position (Tp) */
@@ -303,6 +429,7 @@ function simCascade(P, cur, spd, pos, mode) {
   const piW = makePI(P.piImpl, spd.Kp, spd.Ki * P.Tw, spd.b0, spd.b1, rn ? P.ilimS : P.Imax);
   const piC = makePI(P.piImpl, q.Kp, q.Ki * Ts, q.b0, q.b1, rn ? P.ilimC : P.Vmax * 2);
   let iq = 0, w = 0, th = 0, thPrevW = 0, wf = 0, wmPrev = 0, iqRef = 0, wRef = 0;
+  const pll = spd.pll || pllGains(); let thHat = 0, pllI = 0, wHat = 0;   // PLL on the electrical angle, runs every Ts
   const dq = [];
   let u = 0;
   const t = [], y = [], y2 = [], r = [];
@@ -315,9 +442,11 @@ function simCascade(P, cur, spd, pos, mode) {
       wRef = pos.Kpp * (step - th); const wl = P.nMax * TAU / 60; wRef = Math.max(-wl, Math.min(wl, wRef));
     }
     if (mode === 'speed') wRef = step;
+    // speed estimate: PLL (sensorless) every Ts, or position difference at the speed-loop rate
+    if (P.spdSrc === 'pll') { const eps = P.p * th - thHat; wHat = pll.Kp * eps + pllI; pllI += pll.Ki * Ts * eps; thHat += Ts * wHat; }
     // speed loop
     if (k % P.Nw === 0) {
-      const wm = (th - thPrevW) / P.Tw; thPrevW = th;
+      const wm = P.spdSrc === 'pll' ? wHat / P.p : (th - thPrevW) / P.Tw; thPrevW = th;
       if (spd.lpf.type === 'tu') { wf = spd.lpf.ka * wf + spd.lpf.kb * (wm + wmPrev); wmPrev = wm; } else wf += spd.alpha * (wm - wf);
       iqRef = piW.step(wRef - wf);
     }
@@ -821,7 +950,7 @@ function renesasCfg(R) {
 
 
 /* ============ DEFAULTS & ENTRY POINT ============ */
-const BASE_DEFAULTS = {"motorType": "ipm", "tf": "pow", "zcc": "1", "zsc": "1", "Rs": "1.34", "Ld": "8.2", "Lq": "11.23", "pp": "3", "fluxMode": "psia", "fluxVal": "0.086", "Jm": "3", "JL": "0", "Bv": "0.0001", "Irated": "14.14", "Imax": "20", "nRated": "3000", "nMax": "3500", "Vdc": "310", "fsw": "5000", "upd": "single", "nd": "1", "disc": "be", "Nw": "5", "ff": "100", "Np": "10", "enc": "131072", "Vb": "", "Ib": "", "nb": "", "fcc": "20", "curMethod": "fw", "curStep": "4", "spdMethod": "fw", "fsc": "2", "Nz": "4", "aSO": "2.4", "ktMode": "id0", "spdStep": "100", "loadPct": "50", "fpc": "0.5", "vff": "0", "posStep": "30", "fpll": "25", "zpll": "1", "femf": "250", "zemf": "1", "smoEta": "1.5", "smoLpf": "1000", "flo": "50", "zlo": "0.707", "piImpl": "rn", "ilimC": "", "ilimS": ""};
+const BASE_DEFAULTS = {"motorType": "ipm", "tf": "pow", "zcc": "1", "zsc": "1", "Rs": "1.34", "Ld": "8.2", "Lq": "11.23", "pp": "3", "fluxMode": "psia", "fluxVal": "0.086", "Jm": "3", "JL": "0", "Bv": "0.0001", "Irated": "14.14", "Imax": "20", "nRated": "3000", "nMax": "3500", "Vdc": "310", "fsw": "5000", "upd": "single", "nd": "1", "disc": "be", "Nw": "5", "ff": "100", "Np": "10", "enc": "131072", "Vb": "", "Ib": "", "nb": "", "fcc": "20", "curMethod": "fw", "curStep": "4", "spdMethod": "fw", "fsc": "2", "Nz": "4", "aSO": "2.4", "ktMode": "id0", "spdStep": "100", "loadPct": "50", "fpc": "0.5", "vff": "0", "posStep": "30", "fpll": "25", "zpll": "1", "femf": "250", "zemf": "1", "smoEta": "1.5", "smoLpf": "1000", "flo": "50", "zlo": "0.707", "piImpl": "rn", "ilimC": "", "ilimS": "", "spdSrc": "pll", "tgtPmC": "60", "tgtPmS": "50", "tgtGm": "6", "rbL": "30", "rbRlo": "0.9", "rbRhi": "1.5", "rbJlo": "0.5", "rbJhi": "3", "rbKt": "10", "tuneMode": "worst"};
 const DEFAULTS = (() => {
   const d = { ...BASE_DEFAULTS };
   HWG.forEach(gp => {
@@ -1031,6 +1160,6 @@ function cfgToInputs(vals, base) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULTS, FIELD_IDS, HWG, computeAll, exportCode, exportValues, renesasCfg, parseCfg, cfgToInputs, cfgSortFiles, cArith,
-    piCoef, plantZ, makePI, roots, sweep, fmt, cflt, TAU,
+    piCoef, plantZ, makePI, roots, sweep, fmt, cflt, TAU, autoTune, tradeoff, robustness, currentLoop, speedLoop, pllResp,
   };
 }
